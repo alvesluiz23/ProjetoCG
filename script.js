@@ -1,9 +1,11 @@
 "use strict";
 
 
+// This is not a full .obj parser.
+// see http://paulbourke.net/dataformats/obj/
 
 function parseOBJ(text) {
- 
+  // because indices are base 1 let's just fill in the 0th data
   const objPositions = [[0, 0, 0]];
   const objTexcoords = [[0, 0]];
   const objNormals = [[0, 0, 0]];
@@ -95,7 +97,7 @@ function parseOBJ(text) {
 async function main() {
   // Get A WebGL context
   /** @type {HTMLCanvasElement} */
-  const canvas = document.querySelector("#canvas");
+  const canvas = document.querySelector("#glCanvas");
   const gl = canvas.getContext("webgl");
   if (!gl) {
     return;
@@ -136,7 +138,8 @@ async function main() {
   // compiles and links the shaders, looks up attribute and uniform locations
   const meshProgramInfo = webglUtils.createProgramInfo(gl, [vs, fs]);
 
-  const response = file
+  const response = await fetch('http://127.0.0.1:5500/modelo/ghost_blue.obj');
+  const text = await response.text();
   const data = parseOBJ(text);
 
   // Because data is just named arrays like this
