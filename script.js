@@ -138,7 +138,7 @@ async function main() {
   // compiles and links the shaders, looks up attribute and uniform locations
   const meshProgramInfo = webglUtils.createProgramInfo(gl, [vs, fs]);
 
-  const response = await fetch('https://alvesluiz23.github.io/ProjetoCG/script.js');
+  const response = await fetch('https://alvesluiz23.github.io/modelo/ghost_blue.obj');
   const text = await response.text();
   const data = parseOBJ(text);
 
