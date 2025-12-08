@@ -75,7 +75,8 @@ async function main() {
     return;
   }
 
-  // ---------- SHADERS COM ILUMINAÇÃO + FOG ----------
+  // ---------- SHADERS COM ILUMINAÇÃO + FOG + EMISSÃO NEON ----------
+  // VERTEX SHADER
   const vs = `
     attribute vec4 a_position;
     attribute vec3 a_normal;
@@ -90,17 +91,20 @@ async function main() {
     void main() {
       vec4 worldPosition = u_world * a_position;
       gl_Position = u_projection * u_view * worldPosition;
+      
       v_worldPosition = worldPosition.xyz;
       v_normal = mat3(u_world) * a_normal;
     }
   `;
 
+  // FRAGMENT SHADER 
   const fs = `
     precision mediump float;
 
     varying vec3 v_normal;
     varying vec3 v_worldPosition;
 
+    // iluminação 
     uniform vec4 u_diffuse;
     uniform vec3 u_lightDirection;
     uniform vec3 u_ambient;
@@ -108,29 +112,51 @@ async function main() {
     uniform float u_shininess;
     uniform vec3 u_specularColor;
 
+    // fog linear
     uniform float u_fogNear;
     uniform float u_fogFar;
     uniform vec3 u_fogColor;
 
+    // emissão NEON
+    uniform vec3 u_emissionColor;
+    uniform float u_emissionStrength;
+
     void main() {
+      // normalização dos vetores
       vec3 normal = normalize(v_normal);
       vec3 lightDir = normalize(u_lightDirection);
 
-      float diff = max(dot(normal, lightDir), 0.0);
+      // luz difusa
+      float diff = max(dot(normal, lightDir), 0.0) * 0.7; // reduzida para destacar mais o neon
 
+      // luz especular - aumentada para efeito brilhante
       vec3 viewDir = normalize(u_viewWorldPosition - v_worldPosition);
       vec3 halfDir = normalize(lightDir + viewDir);
-      float spec = pow(max(dot(normal, halfDir), 0.0), u_shininess);
+      float spec = pow(max(dot(normal, halfDir), 0.0), u_shininess * 0.7);
 
+      // cor base da iluminação tradicional - mais escura para contraste 
       vec3 baseColor = u_diffuse.rgb;
-      vec3 color = baseColor * (u_ambient + diff * (1.0 - u_ambient)) +
-                   u_specularColor * spec;
+      vec3 litColor = baseColor * (u_ambient * 0.5 + diff * (1.0 - u_ambient * 0.5)) + u_specularColor * spec * 1.5;
 
+      // emission neon 
+      vec3 neonColor = u_emissionColor * 1.2; // aumenta saturação 
+      
+      // efeito de borda neon - mais forte nas bordas
+      float edgeFactor = 1.0 - abs(dot(normal, viewDir));
+      edgeFactor = pow(edgeFactor, 2.0) * 0.5 + 0.5;
+      
+      // emission final
+      vec3 emission = neonColor * u_emissionStrength * (1.0 + edgeFactor * 0.5);
+      
+      // combinação: iluminação + emissão NEON
+      vec3 color = litColor + emission * 2.0;
+
+      // fog linear - reduzido (evitar fog forte quando tiver efeitos neon)
       float dist = length(v_worldPosition - u_viewWorldPosition);
       float fogAmount = clamp((dist - u_fogNear) / (u_fogFar - u_fogNear), 0.0, 1.0);
-      vec3 finalColor = mix(color, u_fogColor, fogAmount);
+      vec3 foggedColor = mix(color, u_fogColor, fogAmount * 0.7);
 
-      gl_FragColor = vec4(finalColor, u_diffuse.a);
+      gl_FragColor = vec4(foggedColor, u_diffuse.a);
     }
   `;
 
@@ -142,60 +168,73 @@ async function main() {
       name: "pacman",
       url: "pac_man.obj",
       color: [1.0, 1.0, 0.0, 1.0],   // amarelo
+      emissionColor: [1.0, 1.0, 0.3], // amarelo NEON
+      emissionStrength: 0.8,          // intensidade NEON
       pos: [0, 0, 0],
       scale: 0.8,
       bobAmplitude: 0.0,
       isPlayer: true,
       facingAngle: 0,
       speed: 4.0,
+      pulseSpeed: 2.5, // velocidade do pulso neon
     },
     {
       name: "ghost_red",
       url: "ghost_red.obj",
-      color: [1.0, 0.0, 0.1, 1.0],
+      color: [1.0, 0.0, 0.1, 1.0], // vermelho
+      emissionColor: [1.0, 0.2, 0.2], // vermelho NEON 
+      emissionStrength: 0.7,           // intensidade NEON 
       pos: [-4, 0, -2],
       scale: 0.8,
       bobAmplitude: 0.25,
       isPlayer: false,
       speed: 2.0,
+      pulseSpeed: 2.0, // velocidade do pulso neon
     },
     {
       name: "ghost_pink",
       url: "ghost_pink.obj",
-      color: [1.0, 0.4, 0.8, 1.0],
+      color: [1.0, 0.4, 0.8, 1.0], // rosa
+      emissionColor: [1.0, 0.4, 0.9], // rosa NEON 
+      emissionStrength: 0.7,           // intensidade NEON
       pos: [4, 0, -2],
       scale: 0.8,
       bobAmplitude: 0.25,
       isPlayer: false,
       speed: 2.0,
+      pulseSpeed: 1.8, // velocidade do pulso neon
     },
     {
       name: "ghost_blue",
       url: "ghost_blue.obj",
-      color: [0.3, 0.5, 1.0, 1.0],
+      color: [0.3, 0.5, 1.0, 1.0], // azul
+      emissionColor: [0.3, 0.6, 1.0], // azul NEON 
+      emissionStrength: 0.7,           // intensidade NEON 
       pos: [-2, 0, -5],
       scale: 0.8,
       bobAmplitude: 0.25,
       isPlayer: false,
-      speed: 2.2,
+      speed: 2.2, 
+      pulseSpeed: 2.2, // velocidade do pulso neon
     },
     {
       name: "ghost_yellow",
       url: "ghost_yellow.obj",
-      color: [1.0, 0.85, 0.2, 1.0],
+      color: [1.0, 0.85, 0.2, 1.0], // amarelo
+      emissionColor: [1.0, 0.9, 0.3], // amarelo NEON 
+      emissionStrength: 0.7,           // intensidade NEON 
       pos: [2, 0, -5],
       scale: 0.8,
       bobAmplitude: 0.25,
       isPlayer: false,
       speed: 2.2,
+      pulseSpeed: 1.9, // velocidade do pulso neon
     },
   ];
 
   const player = characters.find((c) => c.isPlayer);
 
-  // ---------- LOAD MODELS (personagens + labirinto) ----------
-
-  // Carrega personagens
+  // ---------- LOAD MODELS ----------
   await Promise.all(
     characters.map(async (ch) => {
       const resp = await fetch(ch.url);
@@ -214,7 +253,7 @@ async function main() {
     })
   );
 
-  // Carrega labirinto (pasta modelo/)
+  // Carrega labirinto
   let labyrinthBufferInfo = null;
   try {
     const labResp = await fetch("modelo/labirinth.obj");
@@ -234,7 +273,7 @@ async function main() {
     console.error("Falha ao carregar labirinto:", e);
   }
 
-  // ---------- CHÃO (opcional, bem discreto) ----------
+  // ---------- CHÃO ----------
   const groundSize = 22;
   const groundY = -1.2;
 
@@ -259,7 +298,7 @@ async function main() {
   const groundBufferInfo = webglUtils.createBufferInfoFromArrays(gl, groundArrays);
 
   // ---------- PARÂMETROS DE CENA ----------
-  const worldLimit = 9; // limite geral de movimentação em X/Z
+  const worldLimit = 9;
   const zNear = 0.1;
   const zFar = 80;
 
@@ -272,7 +311,7 @@ async function main() {
   function update(dt, totalTime) {
     if (!player) return;
 
-    // ---- MOVIMENTO DO PAC-MAN ----
+    // MOVIMENTO DO PAC-MAN
     let moveX = 0;
     let moveZ = 0;
 
@@ -289,15 +328,14 @@ async function main() {
       player.pos[0] += moveX * player.speed * dt;
       player.pos[2] += moveZ * player.speed * dt;
 
-      // Limite grosso de mundo (não é colisão por parede ainda)
+      // Limite de mundo
       player.pos[0] = Math.max(-worldLimit, Math.min(worldLimit, player.pos[0]));
       player.pos[2] = Math.max(-worldLimit, Math.min(worldLimit, player.pos[2]));
 
-      // Atualiza direção olhando para frente do movimento
       player.facingAngle = Math.atan2(moveX, -moveZ);
     }
 
-    // ---- MOVIMENTO DOS FANTASMAS (perseguindo) ----
+    // MOVIMENTO DOS FANTASMAS
     characters.forEach((ch, index) => {
       if (ch.isPlayer) return;
 
@@ -333,10 +371,11 @@ async function main() {
     gl.enable(gl.DEPTH_TEST);
     gl.enable(gl.CULL_FACE);
 
-    gl.clearColor(0.03, 0.03, 0.06, 1);
+    // cor de fundo mais escura para contraste com neon
+    gl.clearColor(0.02, 0.02, 0.04, 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-    // ---- CÂMERA 3ª PESSOA SEGINDO PAC-MAN ----
+    // CÂMERA 3ª PESSOA
     const camDistance = 10;
     const camHeight = 6;
 
@@ -358,7 +397,7 @@ async function main() {
     const view = m4.inverse(camera);
 
     const lightDirection = m4.normalize([-0.6, 1.0, 0.8]);
-    const ambient = [0.25, 0.25, 0.25];
+    const ambient = [0.15, 0.15, 0.15]; // ambiente mais escuro para neon destacar
     const viewWorldPos = cameraPosition;
 
     const fogNear = 20.0;
@@ -367,7 +406,7 @@ async function main() {
 
     gl.useProgram(programInfo.program);
 
-    // ---------- Desenha chão discreto ----------
+    // ---------- Desenha chão ----------
     webglUtils.setBuffersAndAttributes(gl, programInfo, groundBufferInfo);
     let worldGround = m4.identity();
     webglUtils.setUniforms(programInfo, {
@@ -379,18 +418,19 @@ async function main() {
       u_viewWorldPosition: viewWorldPos,
       u_shininess: 8.0,
       u_specularColor: [0.05, 0.05, 0.07],
-      u_diffuse: [0.12, 0.14, 0.20, 1.0],
+      u_diffuse: [0.08, 0.10, 0.15, 1.0], // chão mais escuro
       u_fogNear: fogNear,
       u_fogFar: fogFar,
       u_fogColor: fogColor,
+      u_emissionColor: [0.0, 0.0, 0.0],
+      u_emissionStrength: 0.0,
     });
     webglUtils.drawBufferInfo(gl, groundBufferInfo);
 
-    // ---------- Desenha labirinto (fixo) ----------
+    // ---------- Desenha labirinto ----------
     if (labyrinthBufferInfo) {
       webglUtils.setBuffersAndAttributes(gl, programInfo, labyrinthBufferInfo);
 
-      // se precisar ajustar tamanho/altura do labirinto, mexe aqui:
       let worldLab = m4.translation(0, -1.0, 0);
       worldLab = m4.multiply(worldLab, m4.scaling(1.0, 1.0, 1.0));
 
@@ -401,12 +441,14 @@ async function main() {
         u_lightDirection: lightDirection,
         u_ambient: ambient,
         u_viewWorldPosition: viewWorldPos,
-        u_shininess: 16.0,
-        u_specularColor: [0.5, 0.5, 0.7],
-        u_diffuse: [0.05, 0.25, 0.55, 1.0],   // azulzinho de parede
+        u_shininess: 12.0,
+        u_specularColor: [0.3, 0.3, 0.5],
+        u_diffuse: [0.03, 0.15, 0.35, 1.0], // labirinto mais escuro
         u_fogNear: fogNear,
         u_fogFar: fogFar,
         u_fogColor: fogColor,
+        u_emissionColor: [0.0, 0.0, 0.0],
+        u_emissionStrength: 0.0,
       });
 
       webglUtils.drawBufferInfo(gl, labyrinthBufferInfo);
@@ -427,6 +469,10 @@ async function main() {
         world = m4.multiply(world, m4.yRotation(time * 0.8));
       }
 
+      // efeito de pulso neon 
+      const pulse = 0.1 * Math.sin(time * ch.pulseSpeed) + 1.0;
+      const currentEmissionStrength = ch.emissionStrength * pulse;
+
       webglUtils.setBuffersAndAttributes(gl, programInfo, ch.bufferInfo);
       webglUtils.setUniforms(programInfo, {
         u_projection: projection,
@@ -435,12 +481,14 @@ async function main() {
         u_lightDirection: lightDirection,
         u_ambient: ambient,
         u_viewWorldPosition: viewWorldPos,
-        u_shininess: 24.0,
-        u_specularColor: [0.9, 0.9, 0.9],
+        u_shininess: 32.0, // brilho especular
+        u_specularColor: [1.0, 1.0, 1.0], // especular branco 
         u_diffuse: ch.color,
         u_fogNear: fogNear,
         u_fogFar: fogFar,
         u_fogColor: fogColor,
+        u_emissionColor: ch.emissionColor,
+        u_emissionStrength: currentEmissionStrength, // com pulso
       });
 
       webglUtils.drawBufferInfo(gl, ch.bufferInfo);
@@ -449,6 +497,7 @@ async function main() {
     requestAnimationFrame(render);
   }
 
+  // console.log("Efeito NEON ativado! Pac-Man e fantasmas com brilho retro forte.");
   requestAnimationFrame(render);
 }
 
