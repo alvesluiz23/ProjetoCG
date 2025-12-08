@@ -403,10 +403,11 @@ async function main() {
   ];
 
   // ----------------- FRUTINHAS -----------------
-const fruits = [];            
-let fruitBufferInfo = null;     
-let fruitsCollected = 0;       
+const fruits = [];
+let fruitBufferInfo = null;
+let fruitsCollected = 0;
 
+const FRUIT_DISAPPEAR_DURATION = 0.4;
 
 function getRandomFruitPosition() {
   const margin = 1.0;
@@ -423,12 +424,17 @@ function getRandomFruitPosition() {
     }
   }
 
+  // fallback
   return [0, 0, 0];
 }
 
 function spawnFruit() {
   const pos = getRandomFruitPosition();
-  fruits.push({ pos, collected: false });
+  fruits.push({
+    pos,
+    collected: false,    
+    disappearTimer: 0,     
+  });
 }
 
   const player = characters.find((c) => c.isPlayer);
@@ -624,21 +630,33 @@ function spawnFruit() {
     }
 
     // ---- COLETA DE FRUTAS ----
-    const fruitRadius = 0.7;   // raio de "coleta" em torno da fruta
+    const fruitRadius = 0.7;  
+
     fruits.forEach((fruit) => {
-      if (fruit.collected) return;
+      if (fruit.collected) return; 
 
       const dx = player.pos[0] - fruit.pos[0];
       const dz = player.pos[2] - fruit.pos[2];
       const dist = Math.hypot(dx, dz);
 
       if (dist < fruitRadius) {
-        fruit.collected = true;
+        fruit.collected = true;     
+        fruit.disappearTimer = 0; 
         fruitsCollected++;
         console.log("Fruta coletada! Total:", fruitsCollected);
+      }
+    });
 
+    // 2) Atualiza animação de desaparecimento e respawna depois
+    fruits.forEach((fruit) => {
+      if (!fruit.collected) return;
+
+      fruit.disappearTimer += dt;
+
+      if (fruit.disappearTimer >= FRUIT_DISAPPEAR_DURATION) {
         fruit.pos = getRandomFruitPosition();
         fruit.collected = false;
+        fruit.disappearTimer = 0;
       }
     });
   }
@@ -749,9 +767,19 @@ function spawnFruit() {
     // ---------- DESENHA FRUTINHAS ----------
     if (fruitBufferInfo) {
       fruits.forEach((fruit) => {
-        if (fruit.collected) return;
 
-        // "pulsar" levemente no eixo Y
+        let t = 0;
+        if (fruit.collected) {
+          t = Math.min(fruit.disappearTimer / FRUIT_DISAPPEAR_DURATION, 1.0);
+        }
+
+        const baseScale = 0.4;
+        const scale = baseScale * (1.0 - t);
+
+        if (scale <= 0.0) return;
+
+        const alpha = 1.0 - t;
+
         const bob = 0.2 * Math.sin(time * 3.0 + fruit.pos[0] + fruit.pos[2]);
 
         let worldFruit = m4.translation(
@@ -759,8 +787,7 @@ function spawnFruit() {
           fruit.pos[1] + bob,
           fruit.pos[2]
         );
-        // ajusta o tamanho da fruta aqui
-        worldFruit = m4.multiply(worldFruit, m4.scaling(0.4, 0.4, 0.4));
+        worldFruit = m4.multiply(worldFruit, m4.scaling(scale, scale, scale));
 
         webglUtils.setBuffersAndAttributes(gl, programInfo, fruitBufferInfo);
         webglUtils.setUniforms(programInfo, {
@@ -772,13 +799,12 @@ function spawnFruit() {
           u_viewWorldPosition: viewWorldPos,
           u_shininess: 32.0,
           u_specularColor: [1.0, 1.0, 1.0],
-          u_diffuse: [1.0, 0.3, 0.1, 1.0],   // laranja/vermelho
+          u_diffuse: [1.0, 0.3, 0.1, alpha],
           u_fogNear: fogNear,
           u_fogFar: fogFar,
           u_fogColor: fogColor,
-          // se seu shader tiver emissão, pode usar:
           u_emissionColor: [1.0, 0.5, 0.2],
-          u_emissionStrength: 0.6,
+          u_emissionStrength: 0.6 * (1.0 - t),
         });
 
         webglUtils.drawBufferInfo(gl, fruitBufferInfo);
