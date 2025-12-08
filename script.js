@@ -402,8 +402,42 @@ async function main() {
     },
   ];
 
+  // ----------------- FRUTINHAS -----------------
+const fruits = [];            
+let fruitBufferInfo = null;     
+let fruitsCollected = 0;       
+
+
+function getRandomFruitPosition() {
+  const margin = 1.0;
+  const maxTries = 50;
+
+  for (let i = 0; i < maxTries; ++i) {
+    const x = (Math.random() * 2 - 1) * (worldLimit - margin);
+    const z = (Math.random() * 2 - 1) * (worldLimit - margin);
+    const pos = [x, 0, z];
+
+    const col = collisionSystem.checkCollision(pos, 0.5);
+    if (!col.collides) {
+      return pos;
+    }
+  }
+
+  return [0, 0, 0];
+}
+
+function spawnFruit() {
+  const pos = getRandomFruitPosition();
+  fruits.push({ pos, collected: false });
+}
+
   const player = characters.find((c) => c.isPlayer);
   const collisionSystem = new CollisionSystem();
+
+  // ---------- PARÂMETROS DE CENA ----------
+  const worldLimit = 9;
+  const zNear = 0.1;
+  const zFar = 80;
 
   // ---------- LOAD MODELS ----------
   await Promise.all(
@@ -440,6 +474,10 @@ async function main() {
       
       collisionSystem.processLabyrinthMesh(labData.position);
       collisionSystem.createDebugGeometry(gl);
+
+        for (let i = 0; i < 10; ++i) {
+          spawnFruit();
+        }
       
       console.log("Labirinto carregado:", labData.position.length / 3, "vértices");
     } else {
@@ -447,6 +485,25 @@ async function main() {
     }
   } catch (e) {
     console.error("Falha ao carregar labirinto:", e);
+  }
+
+    // --------- CARREGA MODELO DA FRUTINHA ---------
+  try {
+    const fruitResp = await fetch("modelo/fruit.obj");
+    if (fruitResp.ok) {
+      const fruitText = await fruitResp.text();
+      const fruitData = parseOBJ(fruitText);
+      const fruitArrays = {
+        position: fruitData.position,
+        normal: fruitData.normal,
+      };
+      fruitBufferInfo = webglUtils.createBufferInfoFromArrays(gl, fruitArrays);
+      console.log("Modelo de fruta carregado:", fruitData.position.length / 3, "vértices");
+    } else {
+      console.error("Erro ao carregar modelo/fruit.obj");
+    }
+  } catch (e) {
+    console.error("Falha ao carregar a frutinha:", e);
   }
 
   // ---------- CHÃO ----------
@@ -472,11 +529,6 @@ async function main() {
     ]),
   };
   const groundBufferInfo = webglUtils.createBufferInfoFromArrays(gl, groundArrays);
-
-  // ---------- PARÂMETROS DE CENA ----------
-  const worldLimit = 9;
-  const zNear = 0.1;
-  const zFar = 80;
 
   function degToRad(d) {
     return d * Math.PI / 180;
@@ -570,6 +622,25 @@ async function main() {
         }
       }
     }
+
+    // ---- COLETA DE FRUTAS ----
+    const fruitRadius = 0.7;   // raio de "coleta" em torno da fruta
+    fruits.forEach((fruit) => {
+      if (fruit.collected) return;
+
+      const dx = player.pos[0] - fruit.pos[0];
+      const dz = player.pos[2] - fruit.pos[2];
+      const dist = Math.hypot(dx, dz);
+
+      if (dist < fruitRadius) {
+        fruit.collected = true;
+        fruitsCollected++;
+        console.log("Fruta coletada! Total:", fruitsCollected);
+
+        fruit.pos = getRandomFruitPosition();
+        fruit.collected = false;
+      }
+    });
   }
 
   function render(timeMs) {
@@ -673,6 +744,45 @@ async function main() {
       });
 
       webglUtils.drawBufferInfo(gl, labyrinthBufferInfo);
+    }
+
+    // ---------- DESENHA FRUTINHAS ----------
+    if (fruitBufferInfo) {
+      fruits.forEach((fruit) => {
+        if (fruit.collected) return;
+
+        // "pulsar" levemente no eixo Y
+        const bob = 0.2 * Math.sin(time * 3.0 + fruit.pos[0] + fruit.pos[2]);
+
+        let worldFruit = m4.translation(
+          fruit.pos[0],
+          fruit.pos[1] + bob,
+          fruit.pos[2]
+        );
+        // ajusta o tamanho da fruta aqui
+        worldFruit = m4.multiply(worldFruit, m4.scaling(0.4, 0.4, 0.4));
+
+        webglUtils.setBuffersAndAttributes(gl, programInfo, fruitBufferInfo);
+        webglUtils.setUniforms(programInfo, {
+          u_projection: projection,
+          u_view: view,
+          u_world: worldFruit,
+          u_lightDirection: lightDirection,
+          u_ambient: ambient,
+          u_viewWorldPosition: viewWorldPos,
+          u_shininess: 32.0,
+          u_specularColor: [1.0, 1.0, 1.0],
+          u_diffuse: [1.0, 0.3, 0.1, 1.0],   // laranja/vermelho
+          u_fogNear: fogNear,
+          u_fogFar: fogFar,
+          u_fogColor: fogColor,
+          // se seu shader tiver emissão, pode usar:
+          u_emissionColor: [1.0, 0.5, 0.2],
+          u_emissionStrength: 0.6,
+        });
+
+        webglUtils.drawBufferInfo(gl, fruitBufferInfo);
+      });
     }
 
     // ---------- Desenha personagens ----------
