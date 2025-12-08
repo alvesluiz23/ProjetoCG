@@ -62,7 +62,7 @@ const keys = {};
 window.addEventListener("keydown", (e) => {
   keys[e.key.toLowerCase()] = true;
   
-  // Toggle para debug de bounding boxes
+  // debug colliders
   if (e.key === 'b' || e.key === 'B') {
     if (window.toggleDebug) {
       window.toggleDebug();
@@ -73,31 +73,33 @@ window.addEventListener("keyup", (e) => {
   keys[e.key.toLowerCase()] = false;
 });
 
-// ===================== COLISÃO =====================
+// ===================== COLLIDERS =====================
 class CollisionSystem {
   constructor() {
-    this.triangles = []; // array de triângulos do labirinto
-    this.boundingBoxes = []; // caixas delimitadoras
-    this.debugEnabled = false;
-    this.debugBufferInfo = null;
+    this.triangles = []; // armazena os triângulos da mesh do labirinto 
+    this.boundingBoxes = []; // armazena bouding boxes
+    this.debugEnabled = false; // controle do modo debug
+    this.debugBufferInfo = null; // buffer para renderizar debug
   }
   
-  // processa os vértices do labirinto para criar triângulos de colisão 
+  // processa a mesh do labirinto para criar collision 
   processLabyrinthMesh(positions, indices = null) {
     this.triangles = [];
     this.boundingBoxes = [];
     
+    /* cada 9 valores = 1 triangulo = 3 vértices com 3 coord cada  */
     if (!indices) {
       for (let i = 0; i < positions.length; i += 9) {
         if (i + 8 < positions.length) {
+          // cria objeto triangulo com 3 vértices
           const triangle = {
-            v0: [positions[i], positions[i + 1], positions[i + 2]],
-            v1: [positions[i + 3], positions[i + 4], positions[i + 5]],
-            v2: [positions[i + 6], positions[i + 7], positions[i + 8]]
+            v0: [positions[i], positions[i + 1], positions[i + 2]], // v1
+            v1: [positions[i + 3], positions[i + 4], positions[i + 5]], // v2
+            v2: [positions[i + 6], positions[i + 7], positions[i + 8]] // v3
           };
           this.triangles.push(triangle);
           
-          // calcula bounding box para o triângulo
+          // encontra valores min e max em cada eixo 
           const minX = Math.min(triangle.v0[0], triangle.v1[0], triangle.v2[0]);
           const maxX = Math.max(triangle.v0[0], triangle.v1[0], triangle.v2[0]);
           const minY = Math.min(triangle.v0[1], triangle.v1[1], triangle.v2[1]);
@@ -105,6 +107,7 @@ class CollisionSystem {
           const minZ = Math.min(triangle.v0[2], triangle.v1[2], triangle.v2[2]);
           const maxZ = Math.max(triangle.v0[2], triangle.v1[2], triangle.v2[2]);
           
+          // armazena bounding box
           this.boundingBoxes.push({
             min: [minX, minY, minZ],
             max: [maxX, maxY, maxZ],
@@ -113,92 +116,29 @@ class CollisionSystem {
         }
       }
     }
-    
-    console.log(`Sistema de colisão: ${this.triangles.length} triângulos processados`);
   }
   
-  // cria geometry para debug das bounding boxes
-  createDebugGeometry(gl) {
-    if (!this.boundingBoxes.length) return null;
+  // verificar colisão do jogador com as paredes
+  checkCollision(pos, radius = 0.4) {
+    const checkHeight = pos[1] + 0.5; // 0.5 unidade acima do jogador altura do jogador - threshold
     
-    const positions = [];
-    const indices = [];
-    
-    // cria wireframe para cada bounding box
-    this.boundingBoxes.forEach((bbox, idx) => {
-      const baseIdx = idx * 8; // 8 vértices por cubo
-      
-      // 8 vértices do cubo
-      const vertices = [
-        [bbox.min[0], bbox.min[1], bbox.min[2]], // 0
-        [bbox.max[0], bbox.min[1], bbox.min[2]], // 1
-        [bbox.max[0], bbox.min[1], bbox.max[2]], // 2
-        [bbox.min[0], bbox.min[1], bbox.max[2]], // 3
-        [bbox.min[0], bbox.max[1], bbox.min[2]], // 4
-        [bbox.max[0], bbox.max[1], bbox.min[2]], // 5
-        [bbox.max[0], bbox.max[1], bbox.max[2]], // 6
-        [bbox.min[0], bbox.max[1], bbox.max[2]]  // 7
-      ];
-      
-      // adiciona vértices ao array
-      vertices.forEach(vertex => {
-        positions.push(...vertex);
-      });
-      
-      // índices para as 12 arestas do cubo
-      const cubeEdges = [
-        // base inferior
-        0, 1, 1, 2, 2, 3, 3, 0,
-        // base superior
-        4, 5, 5, 6, 6, 7, 7, 4,
-        // arestas verticais
-        0, 4, 1, 5, 2, 6, 3, 7
-      ];
-      
-      // adiciona índices com offset
-      cubeEdges.forEach(edgeIdx => {
-        indices.push(baseIdx + edgeIdx);
-      });
-    });
-    
-    // cria buffer info para wireframe
-    const arrays = {
-      position: new Float32Array(positions),
-      indices: new Uint16Array(indices)
-    };
-    
-    this.debugBufferInfo = webglUtils.createBufferInfoFromArrays(gl, arrays);
-    return this.debugBufferInfo;
-  }
-  
-  // toggle para debug
-  toggleDebug() {
-    this.debugEnabled = !this.debugEnabled;
-    console.log(`Debug de bounding boxes: ${this.debugEnabled ? 'ON' : 'OFF'}`);
-    return this.debugEnabled;
-  }
-  
-  // Método simplificado: verifica se posição está dentro de paredes (bounding boxes)
-  checkSimpleCollision(pos, radius = 0.4) {
-    const checkHeight = pos[1] + 0.5; // Verificar na altura do meio do corpo
-    
+    // percorre todas boundig boxes do labirinto 
     for (let i = 0; i < this.boundingBoxes.length; i++) {
       const bbox = this.boundingBoxes[i];
       
-      // Expandir bounding box pelo raio do jogador
+      // expande a bouding box para verificar ação rápida
       const expandedMin = [bbox.min[0] - radius, bbox.min[1] - 1.0, bbox.min[2] - radius];
       const expandedMax = [bbox.max[0] + radius, bbox.max[1] + 2.0, bbox.max[2] + radius];
       
-      // Verificar se posição está dentro da bounding box expandida
       if (pos[0] >= expandedMin[0] && pos[0] <= expandedMax[0] &&
           checkHeight >= expandedMin[1] && checkHeight <= expandedMax[1] &&
           pos[2] >= expandedMin[2] && pos[2] <= expandedMax[2]) {
         
-        // Encontrar a direção de saída mais curta
+        // calcular distância para determinar normal de colisão
         const distancesToMin = [
-          Math.abs(pos[0] - bbox.min[0]),
-          Math.abs(checkHeight - bbox.min[1]),
-          Math.abs(pos[2] - bbox.min[2])
+          Math.abs(pos[0] - bbox.min[0]), // parede esquerda
+          Math.abs(checkHeight - bbox.min[1]), // parede direita
+          Math.abs(pos[2] - bbox.min[2]) // parede trás
         ];
         
         const distancesToMax = [
@@ -207,17 +147,15 @@ class CollisionSystem {
           Math.abs(pos[2] - bbox.max[2])
         ];
         
-        const minDistance = Math.min(
-          ...distancesToMin,
-          ...distancesToMax
-        );
+        // encontra a menor distância - face mais próxima
+        const minDistance = Math.min(...distancesToMin, ...distancesToMax);
         
-        // Determinar normal baseada na face mais próxima
+        // determina a normal da colisão baseada na face mais próxima
         let normal = [0, 0, 0];
-        if (minDistance === distancesToMin[0]) normal = [1, 0, 0];  // Face X min
-        else if (minDistance === distancesToMax[0]) normal = [-1, 0, 0]; // Face X max
-        else if (minDistance === distancesToMin[2]) normal = [0, 0, 1];  // Face Z min
-        else if (minDistance === distancesToMax[2]) normal = [0, 0, -1]; // Face Z max
+        if (minDistance === distancesToMin[0]) normal = [1, 0, 0];
+        else if (minDistance === distancesToMax[0]) normal = [-1, 0, 0]; // colidiu com parede esquerda
+        else if (minDistance === distancesToMin[2]) normal = [0, 0, 1]; // colidiu com parede direita
+        else if (minDistance === distancesToMax[2]) normal = [0, 0, -1]; // colidiu com trás
         
         return {
           collides: true,
@@ -231,9 +169,60 @@ class CollisionSystem {
     
     return { collides: false };
   }
+  
+  // debug bounding boxes
+  createDebugGeometry(gl) {
+    if (!this.boundingBoxes.length) return null;
+    
+    const positions = [];
+    const indices = [];
+    
+    this.boundingBoxes.forEach((bbox, idx) => {
+      const baseIdx = idx * 8;
+      
+      const vertices = [
+        [bbox.min[0], bbox.min[1], bbox.min[2]],
+        [bbox.max[0], bbox.min[1], bbox.min[2]],
+        [bbox.max[0], bbox.min[1], bbox.max[2]],
+        [bbox.min[0], bbox.min[1], bbox.max[2]],
+        [bbox.min[0], bbox.max[1], bbox.min[2]],
+        [bbox.max[0], bbox.max[1], bbox.min[2]],
+        [bbox.max[0], bbox.max[1], bbox.max[2]],
+        [bbox.min[0], bbox.max[1], bbox.max[2]]
+      ];
+      
+      vertices.forEach(vertex => {
+        positions.push(...vertex);
+      });
+      
+      const cubeEdges = [
+        0, 1, 1, 2, 2, 3, 3, 0,
+        4, 5, 5, 6, 6, 7, 7, 4,
+        0, 4, 1, 5, 2, 6, 3, 7
+      ];
+      
+      cubeEdges.forEach(edgeIdx => {
+        indices.push(baseIdx + edgeIdx);
+      });
+    });
+    
+    const arrays = {
+      position: new Float32Array(positions),
+      indices: new Uint16Array(indices)
+    };
+    
+    this.debugBufferInfo = webglUtils.createBufferInfoFromArrays(gl, arrays);
+    return this.debugBufferInfo;
+  }
+  
+  toggleDebug() {
+    this.debugEnabled = !this.debugEnabled;
+    console.log(`Debug de colisão (paredes): ${this.debugEnabled ? 'ON' : 'OFF'}`);
+    return this.debugEnabled;
+  }
 }
 
-// ===================== SHADER PARA DEBUG (WIREFRAME) =====================
+// ===================== SHADER PARA DEBUG =====================
 const debugVS = `
   attribute vec4 a_position;
   
@@ -265,7 +254,7 @@ async function main() {
     return;
   }
 
-  // ---------- SHADERS PRINCIPAIS ----------
+  // ---------- SHADERS ----------
   const vs = `
     attribute vec4 a_position;
     attribute vec3 a_normal;
@@ -278,9 +267,11 @@ async function main() {
     varying vec3 v_worldPosition;
 
     void main() {
+      // posição final da geometria na tela
       vec4 worldPosition = u_world * a_position;
       gl_Position = u_projection * u_view * worldPosition;
       
+      // exporta para fragment shader
       v_worldPosition = worldPosition.xyz;
       v_normal = mat3(u_world) * a_normal;
     }
@@ -305,27 +296,33 @@ async function main() {
     uniform float u_emissionStrength;
 
     void main() {
+      // cálculo de luz difusa - Lambert 
       vec3 normal = normalize(v_normal);
       vec3 lightDir = normalize(u_lightDirection);
       float diff = max(dot(normal, lightDir), 0.0) * 0.7;
       
+      // especular (Binn-Phong)
       vec3 viewDir = normalize(u_viewWorldPosition - v_worldPosition);
       vec3 halfDir = normalize(lightDir + viewDir);
       float spec = pow(max(dot(normal, halfDir), 0.0), u_shininess * 0.7);
 
+      // combinação das luzes 
       vec3 baseColor = u_diffuse.rgb;
       vec3 litColor = baseColor * (u_ambient * 0.5 + diff * (1.0 - u_ambient * 0.5)) + u_specularColor * spec * 1.5;
 
+      // emission com bordas neon 
       vec3 neonColor = u_emissionColor * 1.2;
       float edgeFactor = 1.0 - abs(dot(normal, viewDir));
       edgeFactor = pow(edgeFactor, 2.0) * 0.5 + 0.5;
       vec3 emission = neonColor * u_emissionStrength * (1.0 + edgeFactor * 0.5);
       vec3 color = litColor + emission * 2.0;
 
+      // fog linear - neblina 
       float dist = length(v_worldPosition - u_viewWorldPosition);
       float fogAmount = clamp((dist - u_fogNear) / (u_fogFar - u_fogNear), 0.0, 1.0);
       vec3 foggedColor = mix(color, u_fogColor, fogAmount * 0.7);
 
+      // cor final 
       gl_FragColor = vec4(foggedColor, u_diffuse.a);
     }
   `;
@@ -346,7 +343,8 @@ async function main() {
       bobAmplitude: 0.0,
       isPlayer: true,
       facingAngle: 0,
-      speed: 4.0,
+      turnSpeed: 3.0,
+      moveSpeed: 4.0,
       pulseSpeed: 2.5,
       radius: 0.4,
     },
@@ -362,7 +360,6 @@ async function main() {
       isPlayer: false,
       speed: 0.0,
       pulseSpeed: 0.0,
-      radius: 0.4,
     },
     {
       name: "ghost_pink",
@@ -376,7 +373,6 @@ async function main() {
       isPlayer: false,
       speed: 0.0,
       pulseSpeed: 0.0,
-      radius: 0.4,
     },
     {
       name: "ghost_blue",
@@ -390,7 +386,6 @@ async function main() {
       isPlayer: false,
       speed: 0.0,
       pulseSpeed: 0.0,
-      radius: 0.4,
     },
     {
       name: "ghost_yellow",
@@ -404,7 +399,6 @@ async function main() {
       isPlayer: false,
       speed: 0.0,
       pulseSpeed: 0.0,
-      radius: 0.4,
     },
   ];
 
@@ -426,6 +420,7 @@ async function main() {
         normal: data.normal,
       };
       ch.bufferInfo = webglUtils.createBufferInfoFromArrays(gl, arrays);
+      
       console.log("Carregado:", ch.name, "- vértices:", data.position.length / 3);
     })
   );
@@ -443,14 +438,10 @@ async function main() {
       };
       labyrinthBufferInfo = webglUtils.createBufferInfoFromArrays(gl, labArrays);
       
-      // carrega mesh para colisão
       collisionSystem.processLabyrinthMesh(labData.position);
-      
-      // cria geometry de debug
       collisionSystem.createDebugGeometry(gl);
       
       console.log("Labirinto carregado:", labData.position.length / 3, "vértices");
-      console.log("Sistema de colisão inicializado");
     } else {
       console.error("Erro ao carregar modelo/labirinth.obj");
     }
@@ -491,65 +482,94 @@ async function main() {
     return d * Math.PI / 180;
   }
 
+  function normalizeAngle(angle) {
+    while (angle > Math.PI) angle -= 2 * Math.PI;
+    while (angle < -Math.PI) angle += 2 * Math.PI;
+    return angle;
+  }
+
   let previousTime = 0;
+  let cameraAngle = 0;
   
-  // Expor função de toggle para o evento de tecla
   window.toggleDebug = () => collisionSystem.toggleDebug();
 
   function update(dt, totalTime) {
     if (!player) return;
 
-    // MOVIMENTO DO PAC-MAN
-    let moveX = 0;
-    let moveZ = 0;
-
-    if (keys["w"] || keys["arrowup"]) moveZ -= 1;
-    if (keys["s"] || keys["arrowdown"]) moveZ += 1;
-    if (keys["a"] || keys["arrowleft"]) moveX -= 1;
-    if (keys["d"] || keys["arrowright"]) moveX += 1;
-
-    const len = Math.hypot(moveX, moveZ);
-    if (len > 0.001) {
-      moveX /= len;
-      moveZ /= len;
-
-      // calcular nova posição pretendida
-      const desiredX = player.pos[0] + moveX * player.speed * dt;
-      const desiredZ = player.pos[2] + moveZ * player.speed * dt;
-
-      // verificar colisão na nova posição
+    // CONTROLES DE ROTAÇÃO DA CÂMERA (opcional)
+    let rotateCamera = 0;
+    
+    if (keys["q"]) rotateCamera += 1;
+    if (keys["e"]) rotateCamera -= 1;
+    
+    if (rotateCamera !== 0) {
+      cameraAngle += rotateCamera * 2.0 * dt;
+    }
+    
+    //  ===================== CONTROLES DO PAC-MAN  =====================
+    /*
+      frente = +1 . trás = -1 . parado = 0 
+      esquerda = +1 , direita = -1 , reto = 0
+    */
+    let moveForward = 0;
+    let turnDirection = 0;
+    
+    if (keys["w"] || keys["arrowup"]) moveForward += 1;
+    if (keys["s"] || keys["arrowdown"]) moveForward -= 1;
+    
+    if (keys["a"]) turnDirection += 1;
+    if (keys["d"]) turnDirection -= 1;
+    
+    // sistema de rotação 
+    if (Math.abs(turnDirection) > 0.001) {
+      const curveAmount = turnDirection * player.turnSpeed * dt; // calcula quando virar baseado no tempo e velocidade da curva
+      player.facingAngle += curveAmount; // atualizada o ângulo que pac-man está olhando 
+    }
+    
+    // sistema de movimentação 
+    if (Math.abs(moveForward) > 0.001) {
+      let moveAngle = player.facingAngle; // determina direção do movimento - padrão é direção quje está olhando 
+      
+      // move para trás 
+      if (moveForward < 0) {
+        moveAngle = player.facingAngle + Math.PI; // add 180 graus
+      }
+      
+      // converte ângulo para vetor de direção 
+      const moveX = Math.sin(moveAngle); // X
+      const moveZ = Math.cos(moveAngle); // Z
+      
+      // calcula nova posição desejada
+      const desiredX = player.pos[0] + moveX * player.moveSpeed * dt * Math.abs(moveForward);
+      const desiredZ = player.pos[2] + moveZ * player.moveSpeed * dt * Math.abs(moveForward);
+      
+      // verificar colisão apenas com paredes
       const tempPos = [desiredX, player.pos[1], desiredZ];
-      const collision = collisionSystem.checkSimpleCollision(tempPos, player.radius);
-
+      const collision = collisionSystem.checkCollision(tempPos, player.radius);
+      
       if (!collision.collides) {
-        // sem colisão = mover 
         player.pos[0] = desiredX;
         player.pos[2] = desiredZ;
         
         player.pos[0] = Math.max(-worldLimit, Math.min(worldLimit, player.pos[0]));
         player.pos[2] = Math.max(-worldLimit, Math.min(worldLimit, player.pos[2]));
       } else {
-        // tentar mover apenas em X
+        // colisão com parede - tentar movimento parcial
         const tempPosX = [desiredX, player.pos[1], player.pos[2]];
-        const collisionX = collisionSystem.checkSimpleCollision(tempPosX, player.radius);
+        const collisionX = collisionSystem.checkCollision(tempPosX, player.radius);
         
         if (!collisionX.collides) {
           player.pos[0] = desiredX;
         } else {
-          // tentar mover apenas em Z
           const tempPosZ = [player.pos[0], player.pos[1], desiredZ];
-          const collisionZ = collisionSystem.checkSimpleCollision(tempPosZ, player.radius);
+          const collisionZ = collisionSystem.checkCollision(tempPosZ, player.radius);
           
           if (!collisionZ.collides) {
             player.pos[2] = desiredZ;
           }
         }
       }
-
-      player.facingAngle = Math.atan2(-moveX, moveZ);
     }
-
-    player.bobOffset = 0;
   }
 
   function render(timeMs) {
@@ -568,31 +588,37 @@ async function main() {
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
     // ---------- CÂMERA ----------
-    const camDistance = 10;
-    const camHeight = 4;
+    const camDistance = 8; // distância atrás do pac-man
+    const camHeight = 4; // altura da câmera
     
+    // câmera fica atrás do pac-man na direção que ele está olhando 
     const offsetX = Math.sin(player.facingAngle) * camDistance;
     const offsetZ = Math.cos(player.facingAngle) * camDistance;
     
     const cameraPosition = [
-      player.pos[0] - offsetX,
-      player.pos[1] + camHeight,
-      player.pos[2] - offsetZ
+      player.pos[0] - offsetX, // pos X = atrás
+      player.pos[1] + camHeight, // pós Y = acima 
+      player.pos[2] - offsetZ // pos Z = atrás
     ];
     
     const target = [player.pos[0], player.pos[1] + 1.0, player.pos[2]];
     const up = [0, 1, 0];
 
-    const fieldOfViewRadians = degToRad(60);
+    // projeção perspectiva
+    const fieldOfViewRadians = degToRad(60); // campo de visão 60 graus
     const aspect = gl.canvas.clientWidth / gl.canvas.clientHeight;
     const projection = m4.perspective(fieldOfViewRadians, aspect, zNear, zFar);
+    
+    // view matrix 
     const camera = m4.lookAt(cameraPosition, target, up);
     const view = m4.inverse(camera);
 
+    // luz 
     const lightDirection = m4.normalize([-0.6, 1.0, 0.8]);
     const ambient = [0.15, 0.15, 0.15];
     const viewWorldPos = cameraPosition;
 
+    // fog linear
     const fogNear = 20.0;
     const fogFar = 60.0;
     const fogColor = [0.02, 0.02, 0.05];
@@ -601,6 +627,7 @@ async function main() {
 
     // ---------- Desenha chão ----------
     webglUtils.setBuffersAndAttributes(gl, programInfo, groundBufferInfo);
+    
     let worldGround = m4.identity();
     webglUtils.setUniforms(programInfo, {
       u_projection: projection,
@@ -618,6 +645,7 @@ async function main() {
       u_emissionColor: [0.0, 0.0, 0.0],
       u_emissionStrength: 0.0,
     });
+
     webglUtils.drawBufferInfo(gl, groundBufferInfo);
 
     // ---------- Desenha labirinto ----------
@@ -657,7 +685,7 @@ async function main() {
       world = m4.multiply(world, m4.scaling(ch.scale, ch.scale, ch.scale));
 
       if (ch.isPlayer) {
-        world = m4.multiply(world, m4.yRotation(player.facingAngle + Math.PI));
+        world = m4.multiply(world, m4.yRotation(player.facingAngle));
       }
 
       let currentEmissionStrength = ch.emissionStrength;
@@ -687,15 +715,11 @@ async function main() {
       webglUtils.drawBufferInfo(gl, ch.bufferInfo);
     });
 
-    // ---------- DEBUG: Desenha bounding boxes ----------
+    // ---------- DEBUG: bounding boxes das paredes ----------
     if (collisionSystem.debugEnabled && collisionSystem.debugBufferInfo) {
-      // Mudar para shader de debug
       gl.useProgram(debugProgramInfo.program);
+      gl.disable(gl.CULL_FACE);
       
-      // Configurar para wireframe (desenhar linhas)
-      gl.disable(gl.CULL_FACE); // Desabilitar cull face para ver todas as faces
-      
-      // Desenhar cada bounding box como wireframe
       const worldLab = m4.translation(0, -1.0, 0);
       
       webglUtils.setBuffersAndAttributes(gl, debugProgramInfo, collisionSystem.debugBufferInfo);
@@ -703,73 +727,24 @@ async function main() {
         u_projection: projection,
         u_view: view,
         u_world: worldLab,
-        u_color: [0.0, 1.0, 0.0] // Verde para bounding boxes
+        u_color: [0.0, 1.0, 0.0]
       });
       
-      // Desenhar como wireframe (LINES)
       webglUtils.drawBufferInfo(gl, collisionSystem.debugBufferInfo, gl.LINES);
       
-      // Reabilitar cull face e voltar ao shader principal
       gl.enable(gl.CULL_FACE);
       gl.useProgram(programInfo.program);
-    }
-
-    // ---------- DEBUG: Mostrar colisão atual ----------
-    if (collisionSystem.debugEnabled) {
-      const collision = collisionSystem.checkSimpleCollision(player.pos, player.radius);
-      if (collision.collides) {
-        // Desenhar bounding box da colisão atual
-        gl.useProgram(debugProgramInfo.program);
-        gl.disable(gl.CULL_FACE);
-        
-        // Criar wireframe para a bounding box específica
-        const bbox = collision.bbox;
-        const vertices = [
-          [bbox.min[0], bbox.min[1], bbox.min[2]],
-          [bbox.max[0], bbox.min[1], bbox.min[2]],
-          [bbox.max[0], bbox.min[1], bbox.max[2]],
-          [bbox.min[0], bbox.min[1], bbox.max[2]],
-          [bbox.min[0], bbox.max[1], bbox.min[2]],
-          [bbox.max[0], bbox.max[1], bbox.min[2]],
-          [bbox.max[0], bbox.max[1], bbox.max[2]],
-          [bbox.min[0], bbox.max[1], bbox.max[2]]
-        ];
-        
-        const indices = [
-          0,1,1,2,2,3,3,0, // base inferior
-          4,5,5,6,6,7,7,4, // base superior
-          0,4,1,5,2,6,3,7  // arestas verticais
-        ];
-        
-        const debugArrays = {
-          position: new Float32Array(vertices.flat()),
-          indices: new Uint16Array(indices)
-        };
-        
-        const singleBboxBufferInfo = webglUtils.createBufferInfoFromArrays(gl, debugArrays);
-        
-        webglUtils.setBuffersAndAttributes(gl, debugProgramInfo, singleBboxBufferInfo);
-        webglUtils.setUniforms(debugProgramInfo, {
-          u_projection: projection,
-          u_view: view,
-          u_world: m4.translation(0, -1.0, 0),
-          u_color: [1.0, 0.0, 0.0] // Vermelho para colisão ativa
-        });
-        
-        webglUtils.drawBufferInfo(gl, singleBboxBufferInfo, gl.LINES);
-        
-        gl.enable(gl.CULL_FACE);
-        gl.useProgram(programInfo.program);
-      }
     }
 
     requestAnimationFrame(render);
   }
 
   console.log("=== CONTROLES ===");
-  console.log("WASD/setas: Mover Pac-Man");
-  console.log("B: Liga/desliga debug de bounding boxes");
-  console.log("=================");
+  console.log("W ou ↑: FRENTE");
+  console.log("S ou ↓: TRÁS");
+  console.log("A: ESQUERDA");
+  console.log("D: DIREITA");
+  console.log("B: Debug de colisão");
   
   requestAnimationFrame(render);
 }
