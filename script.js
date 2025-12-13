@@ -582,6 +582,10 @@ function spawnFruit() {
     if (Math.abs(turnDirection) > 0.001) {
       const curveAmount = turnDirection * player.turnSpeed * dt; // calcula quando virar baseado no tempo e velocidade da curva
       player.facingAngle += curveAmount; // atualizada o ângulo que pac-man está olhando 
+      
+      // LIMITA A ROTAÇÃO A ±90 GRAUS (±π/2 radianos) - TOTAL 180 GRAUS
+      const maxRotation = Math.PI / 2; // 90 graus em radianos
+      player.facingAngle = Math.max(-maxRotation, Math.min(maxRotation, player.facingAngle));
     }
     
     // sistema de movimentação 
