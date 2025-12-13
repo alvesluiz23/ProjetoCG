@@ -572,8 +572,8 @@ function spawnFruit() {
     let moveForward = 0;
     let turnDirection = 0;
     
-    if (keys["w"] || keys["arrowup"]) moveForward += 1;
-    if (keys["s"] || keys["arrowdown"]) moveForward -= 1;
+    if (keys["w"] || keys["arrowup"]) moveForward -= 1;
+    if (keys["s"] || keys["arrowdown"]) moveForward += 1;
     
     if (keys["a"]) turnDirection += 1;
     if (keys["d"]) turnDirection -= 1;
@@ -684,14 +684,16 @@ function spawnFruit() {
     const camDistance = 8; // distância atrás do pac-man
     const camHeight = 4; // altura da câmera
     
-    // câmera fica atrás do pac-man na direção que ele está olhando 
+    // CORREÇÃO: Câmera fica ATRÁS do pac-man (não na frente)
+    // Usamos o ângulo oposto (facingAngle + π) para colocar a câmera atrás
     const offsetX = Math.sin(player.facingAngle) * camDistance;
     const offsetZ = Math.cos(player.facingAngle) * camDistance;
     
+    // Para a câmera ficar atrás, SOMAMOS o offset (pois o jogador está olhando na direção oposta)
     const cameraPosition = [
-      player.pos[0] - offsetX, // pos X = atrás
-      player.pos[1] + camHeight, // pós Y = acima 
-      player.pos[2] - offsetZ // pos Z = atrás
+      player.pos[0] + offsetX, // pos X = atrás do Pac-Man
+      player.pos[1] + camHeight, // pos Y = acima 
+      player.pos[2] + offsetZ // pos Z = atrás do Pac-Man
     ];
     
     const target = [player.pos[0], player.pos[1] + 1.0, player.pos[2]];
