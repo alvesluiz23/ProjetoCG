@@ -118,57 +118,35 @@ class CollisionSystem {
     }
   }
   
+  
   // verificar colisão do jogador com as paredes
   checkCollision(pos, radius = 0.4) {
-    const checkHeight = pos[1] + 0.5; // 0.5 unidade acima do jogador altura do jogador - threshold
-    
-    // percorre todas boundig boxes do labirinto 
-    for (let i = 0; i < this.boundingBoxes.length; i++) {
-      const bbox = this.boundingBoxes[i];
-      
-      // expande a bouding box para verificar ação rápida
-      const expandedMin = [bbox.min[0] - radius, bbox.min[1] - 1.0, bbox.min[2] - radius];
-      const expandedMax = [bbox.max[0] + radius, bbox.max[1] + 2.0, bbox.max[2] + radius];
-      
-      if (pos[0] >= expandedMin[0] && pos[0] <= expandedMax[0] &&
-          checkHeight >= expandedMin[1] && checkHeight <= expandedMax[1] &&
-          pos[2] >= expandedMin[2] && pos[2] <= expandedMax[2]) {
-        
-        // calcular distância para determinar normal de colisão
-        const distancesToMin = [
-          Math.abs(pos[0] - bbox.min[0]), // parede esquerda
-          Math.abs(checkHeight - bbox.min[1]), // parede direita
-          Math.abs(pos[2] - bbox.min[2]) // parede trás
-        ];
-        
-        const distancesToMax = [
-          Math.abs(pos[0] - bbox.max[0]),
-          Math.abs(checkHeight - bbox.max[1]),
-          Math.abs(pos[2] - bbox.max[2])
-        ];
-        
-        // encontra a menor distância - face mais próxima
-        const minDistance = Math.min(...distancesToMin, ...distancesToMax);
-        
-        // determina a normal da colisão baseada na face mais próxima
-        let normal = [0, 0, 0];
-        if (minDistance === distancesToMin[0]) normal = [1, 0, 0];
-        else if (minDistance === distancesToMax[0]) normal = [-1, 0, 0]; // colidiu com parede esquerda
-        else if (minDistance === distancesToMin[2]) normal = [0, 0, 1]; // colidiu com parede direita
-        else if (minDistance === distancesToMax[2]) normal = [0, 0, -1]; // colidiu com trás
-        
-        return {
-          collides: true,
-          normal: normal,
-          penetration: radius + minDistance,
-          bbox: bbox,
-          bboxIndex: i
-        };
-      }
+  for (let i = 0; i < this.boundingBoxes.length; i++) {
+    const b = this.boundingBoxes[i];
+
+    // clamp = ponto mais próximo da caixa
+    const closestX = Math.max(b.min[0], Math.min(pos[0], b.max[0]));
+    const closestZ = Math.max(b.min[2], Math.min(pos[2], b.max[2]));
+
+    const dx = pos[0] - closestX;
+    const dz = pos[2] - closestZ;
+
+    const distSq = dx * dx + dz * dz;
+
+    if (distSq < radius * radius) {
+      const dist = Math.sqrt(distSq) || 0.0001;
+
+      return {
+        collides: true,
+        normal: [dx / dist, 0, dz / dist],
+        penetration: radius - dist,
+        bboxIndex: i
+      };
     }
-    
-    return { collides: false };
   }
+  
+  return { collides: false };
+}
   
   // debug bounding boxes
   createDebugGeometry(gl) {
@@ -221,7 +199,13 @@ class CollisionSystem {
     return this.debugEnabled;
   }
 }
-
+function checkCircleCollision(posA, radiusA, posB, radiusB) {
+  const dx = posA[0] - posB[0];
+  const dz = posA[2] - posB[2];
+  const distSq = dx * dx + dz * dz;
+  const minDist = radiusA + radiusB;
+  return distSq < minDist * minDist;
+}
 // ===================== SHADER PARA DEBUG =====================
 const debugVS = `
   attribute vec4 a_position;
@@ -357,6 +341,7 @@ async function main() {
       pos: [-4, 0, -2],
       scale: 0.8,
       bobAmplitude: 0.0,
+      radius: 0.5,
       isPlayer: false,
       speed: 0.0,
       pulseSpeed: 0.0,
@@ -370,6 +355,7 @@ async function main() {
       pos: [4, 0, -2],
       scale: 0.8,
       bobAmplitude: 0.0,
+      radius: 0.5,
       isPlayer: false,
       speed: 0.0,
       pulseSpeed: 0.0,
@@ -383,6 +369,7 @@ async function main() {
       pos: [-2, 0, -5],
       scale: 0.8,
       bobAmplitude: 0.0,
+      radius: 0.5,
       isPlayer: false,
       speed: 0.0,
       pulseSpeed: 0.0,
@@ -396,6 +383,7 @@ async function main() {
       pos: [2, 0, -5],
       scale: 0.8,
       bobAmplitude: 0.0,
+      radius: 0.5,
       isPlayer: false,
       speed: 0.0,
       pulseSpeed: 0.0,
@@ -584,8 +572,7 @@ function spawnFruit() {
       player.facingAngle += curveAmount; // atualizada o ângulo que pac-man está olhando 
       
       // LIMITA A ROTAÇÃO A ±90 GRAUS (±π/2 radianos) - TOTAL 180 GRAUS
-      const maxRotation = Math.PI / 2; // 90 graus em radianos
-      player.facingAngle = Math.max(-maxRotation, Math.min(maxRotation, player.facingAngle));
+      player.facingAngle = normalizeAngle(player.facingAngle);
     }
     
     // sistema de movimentação 
@@ -610,27 +597,13 @@ function spawnFruit() {
       const collision = collisionSystem.checkCollision(tempPos, player.radius);
       
       if (!collision.collides) {
-        player.pos[0] = desiredX;
-        player.pos[2] = desiredZ;
-        
-        player.pos[0] = Math.max(-worldLimit, Math.min(worldLimit, player.pos[0]));
-        player.pos[2] = Math.max(-worldLimit, Math.min(worldLimit, player.pos[2]));
-      } else {
-        // colisão com parede - tentar movimento parcial
-        const tempPosX = [desiredX, player.pos[1], player.pos[2]];
-        const collisionX = collisionSystem.checkCollision(tempPosX, player.radius);
-        
-        if (!collisionX.collides) {
-          player.pos[0] = desiredX;
-        } else {
-          const tempPosZ = [player.pos[0], player.pos[1], desiredZ];
-          const collisionZ = collisionSystem.checkCollision(tempPosZ, player.radius);
-          
-          if (!collisionZ.collides) {
-            player.pos[2] = desiredZ;
-          }
-        }
-      }
+  player.pos[0] = desiredX;
+  player.pos[2] = desiredZ;
+} else {
+  // empurra o Pac-Man para fora da parede
+  player.pos[0] += collision.normal[0] * collision.penetration;
+  player.pos[2] += collision.normal[2] * collision.penetration;
+}
     }
 
     // ---- COLETA DE FRUTAS ----
@@ -663,6 +636,26 @@ function spawnFruit() {
         fruit.disappearTimer = 0;
       }
     });
+    // ===================== COLISÃO COM FANTASMAS =====================
+characters.forEach((ch) => {
+  if (ch.isPlayer) return;
+
+  const hit = checkCircleCollision(
+    player.pos,
+    player.radius,
+    ch.pos,
+    ch.radius
+  );
+
+  if (hit) {
+    console.log("COLIDIU COM:", ch.name);
+
+    // reação simples
+    player.pos[0] = 0;
+    player.pos[2] = 0;
+  }
+});
+
   }
 
   function render(timeMs) {
@@ -891,4 +884,6 @@ function spawnFruit() {
   requestAnimationFrame(render);
 }
 
-main();
+main().catch((e) => {
+  console.error("Erro em main():", e);
+});
