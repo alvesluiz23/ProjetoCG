@@ -564,48 +564,46 @@ function spawnFruit() {
       cameraAngle += rotateCamera * 2.0 * dt;
     }
     
-    //  ===================== CONTROLES DO PAC-MAN  =====================
-    /*
-      frente = +1 . trás = -1 . parado = 0 
-      esquerda = +1 , direita = -1 , reto = 0
-    */
+    // ===================== CONTROLES DO PAC-MAN =====================
     let moveForward = 0;
     let turnDirection = 0;
     
-    if (keys["w"] || keys["arrowup"]) moveForward -= 1;
-    if (keys["s"] || keys["arrowdown"]) moveForward += 1;
+    // W/S: movimento para frente/trás
+    if (keys["w"] || keys["arrowup"]) moveForward += 1;   // W = FRENTE
+    if (keys["s"] || keys["arrowdown"]) moveForward -= 1; // S = TRÁS
     
-    if (keys["a"]) turnDirection += 1;
-    if (keys["d"]) turnDirection -= 1;
+    // A/D: rotação esquerda/direita
+    if (keys["a"]) turnDirection += 1;    // A = gira para ESQUERDA
+    if (keys["d"]) turnDirection -= 1;    // D = gira para DIREITA
     
-    // sistema de rotação 
+    // SISTEMA DE ROTAÇÃO - AGORA 360 GRAUS LIVRES
     if (Math.abs(turnDirection) > 0.001) {
-      const curveAmount = turnDirection * player.turnSpeed * dt; // calcula quando virar baseado no tempo e velocidade da curva
-      player.facingAngle += curveAmount; // atualizada o ângulo que pac-man está olhando 
+      const curveAmount = turnDirection * player.turnSpeed * dt;
+      player.facingAngle += curveAmount;
       
-      // LIMITA A ROTAÇÃO A ±90 GRAUS (±π/2 radianos) - TOTAL 180 GRAUS
-      const maxRotation = Math.PI / 2; // 90 graus em radianos
-      player.facingAngle = Math.max(-maxRotation, Math.min(maxRotation, player.facingAngle));
+      // Mantém o ângulo normalizado entre -π e π para evitar overflow numérico
+      player.facingAngle = normalizeAngle(player.facingAngle);
     }
     
-    // sistema de movimentação 
+    // SISTEMA DE MOVIMENTO - sempre na direção que o personagem está olhando
     if (Math.abs(moveForward) > 0.001) {
-      let moveAngle = player.facingAngle; // determina direção do movimento - padrão é direção quje está olhando 
+      // A direção do movimento é sempre a direção que o personagem está olhando
+      let moveAngle = player.facingAngle;
       
-      // move para trás 
-      if (moveForward < 0) {
-        moveAngle = player.facingAngle + Math.PI; // add 180 graus
+      // Se está andando para trás, inverte a direção
+      if (moveForward > 0) {  // > 0 significa "para trás"
+        moveAngle = player.facingAngle + Math.PI; // 180 graus na direção oposta
       }
       
-      // converte ângulo para vetor de direção 
-      const moveX = Math.sin(moveAngle); // X
-      const moveZ = Math.cos(moveAngle); // Z
+      // Converte ângulo para vetor de direção
+      const moveX = Math.sin(moveAngle);
+      const moveZ = Math.cos(moveAngle);
       
-      // calcula nova posição desejada
+      // Calcula nova posição
       const desiredX = player.pos[0] + moveX * player.moveSpeed * dt * Math.abs(moveForward);
       const desiredZ = player.pos[2] + moveZ * player.moveSpeed * dt * Math.abs(moveForward);
       
-      // verificar colisão apenas com paredes
+      // Verifica colisão
       const tempPos = [desiredX, player.pos[1], desiredZ];
       const collision = collisionSystem.checkCollision(tempPos, player.radius);
       
@@ -613,10 +611,11 @@ function spawnFruit() {
         player.pos[0] = desiredX;
         player.pos[2] = desiredZ;
         
+        // Limita ao mundo
         player.pos[0] = Math.max(-worldLimit, Math.min(worldLimit, player.pos[0]));
         player.pos[2] = Math.max(-worldLimit, Math.min(worldLimit, player.pos[2]));
       } else {
-        // colisão com parede - tentar movimento parcial
+        // Tenta movimento parcial
         const tempPosX = [desiredX, player.pos[1], player.pos[2]];
         const collisionX = collisionSystem.checkCollision(tempPosX, player.radius);
         
@@ -651,7 +650,7 @@ function spawnFruit() {
       }
     });
 
-    // 2) Atualiza animação de desaparecimento e respawna depois
+    // Atualiza animação de desaparecimento e respawna depois
     fruits.forEach((fruit) => {
       if (!fruit.collected) return;
 
@@ -681,39 +680,32 @@ function spawnFruit() {
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
     // ---------- CÂMERA ----------
-    const camDistance = 8; // distância atrás do pac-man
-    const camHeight = 4; // altura da câmera
+    const camDistance = 8;
+    const camHeight = 4;
     
-    // CORREÇÃO: Câmera fica ATRÁS do pac-man (não na frente)
-    // Usamos o ângulo oposto (facingAngle + π) para colocar a câmera atrás
     const offsetX = Math.sin(player.facingAngle) * camDistance;
     const offsetZ = Math.cos(player.facingAngle) * camDistance;
     
-    // Para a câmera ficar atrás, SOMAMOS o offset (pois o jogador está olhando na direção oposta)
     const cameraPosition = [
-      player.pos[0] + offsetX, // pos X = atrás do Pac-Man
-      player.pos[1] + camHeight, // pos Y = acima 
-      player.pos[2] + offsetZ // pos Z = atrás do Pac-Man
+      player.pos[0] + offsetX,
+      player.pos[1] + camHeight,
+      player.pos[2] + offsetZ
     ];
     
     const target = [player.pos[0], player.pos[1] + 1.0, player.pos[2]];
     const up = [0, 1, 0];
 
-    // projeção perspectiva
-    const fieldOfViewRadians = degToRad(60); // campo de visão 60 graus
+    const fieldOfViewRadians = degToRad(60);
     const aspect = gl.canvas.clientWidth / gl.canvas.clientHeight;
     const projection = m4.perspective(fieldOfViewRadians, aspect, zNear, zFar);
     
-    // view matrix 
     const camera = m4.lookAt(cameraPosition, target, up);
     const view = m4.inverse(camera);
 
-    // luz 
     const lightDirection = m4.normalize([-0.6, 1.0, 0.8]);
     const ambient = [0.15, 0.15, 0.15];
     const viewWorldPos = cameraPosition;
 
-    // fog linear
     const fogNear = 20.0;
     const fogFar = 60.0;
     const fogColor = [0.02, 0.02, 0.05];
@@ -882,11 +874,14 @@ function spawnFruit() {
   }
 
   console.log("=== CONTROLES ===");
-  console.log("W ou ↑: FRENTE");
-  console.log("S ou ↓: TRÁS");
-  console.log("A: ESQUERDA");
-  console.log("D: DIREITA");
+  console.log("W ou ↑: Mover para FRENTE (na direção que está olhando)");
+  console.log("S ou ↓: Mover para TRÁS (direção oposta)");
+  console.log("A: Girar para ESQUERDA");
+  console.log("D: Girar para DIREITA");
   console.log("B: Debug de colisão");
+  console.log("=== SISTEMA DE ROTAÇÃO ===");
+  console.log("- Rotação 360 graus livre");
+  console.log("- Movimento sempre na direção atual");
   
   requestAnimationFrame(render);
 }
