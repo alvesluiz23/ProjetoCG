@@ -449,6 +449,11 @@ const fs = `
 async function main() {
   const canvas = document.querySelector("#glCanvas");
   const gl = canvas.getContext("webgl");
+  var count = 0;
+  var ghost_red_count = 0;
+  var ghost_yellow_count = 0;
+  var ghost_blue_count = 0;
+  var ghost_pink_count = 0;
   if (!gl) {
     console.error("WebGL não suportado");
     return;
@@ -499,7 +504,7 @@ async function main() {
       color: [1.0, 0.4, 0.8, 1.0],
       emissionColor: [1.0, 0.4, 0.9],
       emissionStrength: 0.7,
-      pos: [4, 0, -2],
+      pos: [-9, 0, -6],
       scale: 0.8,
       bobAmplitude: 0.0,
       radius: 0.1,
@@ -513,7 +518,7 @@ async function main() {
       color: [0.3, 0.5, 1.0, 1.0],
       emissionColor: [0.3, 0.6, 1.0],
       emissionStrength: 0.7,
-      pos: [-2, 0, -5],
+      pos: [2, 0, -5],
       scale: 0.8,
       bobAmplitude: 0.0,
       radius: 0.1,
@@ -846,12 +851,252 @@ async function main() {
       }
     }
   }
+    function move_ghost_red(ch){
+     if(ghost_red_count == 0){
+        if(ch.pos[0] < 8){
+          console.log(ch.pos)
+          ch.pos[0]++;
+        }
+        else{
+          ghost_red_count = 1;
+        }
+     }
+     if(ghost_red_count == 1){
+       if(ch.pos[2] < 3){
+          ch.pos[2]++;
+        }
+        else{
+          ghost_red_count = 2
+        }
+     }
+     if(ghost_red_count == 2){
+       if(ch.pos[0] > -8){
+          ch.pos[0]--
+        }
+        else{
+          ghost_red_count = 3
+        }
+     }
+    if(ghost_red_count == 3){
+       if(ch.pos[2] > -7){
+          ch.pos[2]--
+        }
+        else{
+          ghost_red_count = 0
+        }
+     }
+  }
+  function move_ghost_yellow(ch){
+     if(ghost_yellow_count == 0){
+        if(ch.pos[2] > -13){
+           ch.pos[2]--;
+        }
+        else if(ch.pos[0] < 4){
+           ch.pos[0]++;
+        }
+        else{
+          ghost_yellow_count =1;
+        }
+     }
+
+    if(ghost_yellow_count == 1){
+    
+      if(ch.pos[0] < 9){
+         ch.pos[0]++
+      }
+      else if(ch.pos[2] > -17){
+         ch.pos[2]--
+      }
+      else{
+        ghost_yellow_count = 2;
+      }
+    }
+
+    if(ghost_yellow_count == 2){
+      
+      if(ch.pos[0] > -12){
+         ch.pos[0]--;
+      }
+      else{
+        ghost_yellow_count = 3;
+      }
+    }
+    if(ghost_yellow_count == 3){
+      console.log("entrei")
+      if(ch.pos[2] < 14){
+         ch.pos[2]++;
+      }
+      else{
+        ghost_yellow_count = 4;
+      }
+    }
+    if(ghost_yellow_count == 4){
+      console.log("entrei")
+      if(ch.pos[0] < 14){
+         ch.pos[0]++
+      }
+      else{
+        ghost_yellow_count = 5
+      }
+    }
+
+    if(ghost_yellow_count == 5){
+      if(ch.pos[2] > -17){
+         ch.pos[2]--
+      }
+      else{
+        ghost_yellow_count = 2
+      }
+    }
+  }
+
+  function move_ghost_blue(ch){
+       
+       if(ghost_blue_count == 0){
+        
+        if(ch.pos[2] > -13){
+           ch.pos[2]--;
+          
+        }
+        else if(ch.pos[0] < 4){
+           ch.pos[0]++;
+        }
+        else{
+          ghost_blue_count =1;
+        }
+     }
+
+    if(ghost_blue_count == 1){
+     
+      if(ch.pos[0] < 9){
+         ch.pos[0]++
+      }
+      else if(ch.pos[2] > -17){
+         ch.pos[2]--
+      }
+      else{
+        ghost_blue_count = 2;
+      }
+    }
+
+    if(ghost_blue_count == 2){
+     
+      if(ch.pos[0] < 15){
+         ch.pos[0]++
+      }
+      else{
+        ghost_blue_count = 3;
+      }
+   
+    }
+    if(ghost_blue_count == 3){
+      if(ch.pos[2] < 14){
+         ch.pos[2]++;
+      }
+      else{
+        ghost_blue_count = 4;
+      }
+   
+    }
+
+    if(ghost_blue_count == 4){
+      if(ch.pos[0]  > -11){
+         ch.pos[0]--
+      }
+      else{
+        ghost_blue_count = 5
+      }
+    }
+    if(ghost_blue_count == 5){
+      if(ch.pos[2] > -17){
+         ch.pos[2]--
+      }
+      else{
+        ghost_blue_count = 2
+      }
+    }
+
+
+    
+  }
+
+  function move_ghost_pink(ch){
+     if(ghost_pink_count == 0){
+      if(ch.pos[2]  < 3){
+         ch.pos[2]++
+      }
+      else{
+        ghost_pink_count = 1
+      }
+     }
+
+    if(ghost_pink_count == 1){
+      if(ch.pos[0]  < 6){
+         ch.pos[0]++
+      }
+      else{
+        ghost_pink_count = 2
+      }
+     }
+
+    if(ghost_pink_count == 2){
+      console.log("entrei")
+      if(ch.pos[2]  > -6){
+         ch.pos[2]--
+      }
+      else{
+        ghost_pink_count = 3
+      }
+     }
+
+    if(ghost_pink_count == 3){
+     
+      if(ch.pos[0]  > -9){
+         ch.pos[0]--
+      }
+      else{
+        ghost_pink_count = 0
+      }
+     }
+
+  }
+
+
+
 
   // ===================== GAME LOOP - RENDER =====================
   function render(timeMs) {
     const time = timeMs * 0.001;
     const dt = Math.min(time - previousTime, 0.05);
     previousTime = time;
+
+        count++;
+
+    if(count == 10){
+      count = 0;
+
+      characters.forEach((ch) =>{
+         if(ch.name == "ghost_red"){
+            move_ghost_red(ch)
+         }
+         if(ch.name == "ghost_yellow"){
+            move_ghost_yellow(ch)
+         }
+         if(ch.name == "ghost_blue"){
+            move_ghost_blue(ch)
+         }
+         if(ch.name == "ghost_pink"){
+            move_ghost_pink(ch)
+         }
+
+
+         if(ch.name == "pacman"){
+           console.log(ch.pos)
+         }
+      }
+      )
+    }
+
 
     update(dt, time); // Chama a lógica de atualização
 
