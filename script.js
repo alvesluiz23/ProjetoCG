@@ -542,7 +542,7 @@ async function main() {
   let fruitBufferInfo = null;
   let fruitsCollected = 0;
 
-  const worldLimit = 30;
+  const worldLimit = 25;
 
   /**
    * Encontra uma posição aleatória para uma fruta que não colida com as paredes.
@@ -864,8 +864,8 @@ async function main() {
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
     // ---------- CÂMERA (Visão em Terceira Pessoa) ----------
-    const camDistance = 8; 
-    const camHeight = 4; 
+    const camDistance = 3; 
+    const camHeight = 2; 
     
     // Posição da Câmera: Atrás do Pac-Man (ângulo oposto ao facingAngle)
     const offsetX = Math.sin(player.facingAngle) * camDistance;
@@ -1098,8 +1098,6 @@ async function main() {
   console.log("D: DIREITA");
   console.log("B: Debug de colisão (paredes)");
   console.log("P: Debug de colisão (Pac-Man)");
-  console.log("=== INFO COLISÃO ===");
-  // console.log(`Pac-Man: ${collisionSystem.playerColliders.length} bounding boxes`);
   
   requestAnimationFrame(render);
 }
