@@ -1,4 +1,3 @@
-
 "use strict";
 let fruitCounterEl = null;
 
@@ -113,6 +112,13 @@ window.addEventListener("keydown", (e) => {
       window.toggleDebug();
     }
   }
+  
+  // debug collider do Pac-Man
+  if (e.key === 'p' || e.key === 'P') {
+    if (window.togglePlayerDebug) {
+      window.togglePlayerDebug();
+    }
+  }
 });
 window.addEventListener("keyup", (e) => {
   keys[e.key.toLowerCase()] = false;
@@ -126,6 +132,7 @@ class CollisionSystem {
     this.boundingBoxes = []; // Armazena Bounding Boxes (AABBs) das paredes
     this.debugEnabled = false; // Controle do modo debug
     this.debugBufferInfo = null; // Buffer para renderizar debug
+    this.playerColliders = []; // Bounding boxes do jogador
   }
   
   processLabyrinthMesh(positions, yOffset = 0) {
@@ -161,7 +168,36 @@ class CollisionSystem {
       }
   }
   
+  // Processa a mesh do jogador para criar colliders
+  processPlayerMesh(positions, scale = 1.0) {
+    this.playerColliders = [];
+    
+    for (let i = 0; i < positions.length; i += 9) {
+      if (i + 8 < positions.length) {
+        // Aplica escala aos vértices
+        const v0 = [positions[i] * scale, positions[i + 1] * scale, positions[i + 2] * scale];
+        const v1 = [positions[i + 3] * scale, positions[i + 4] * scale, positions[i + 5] * scale];
+        const v2 = [positions[i + 6] * scale, positions[i + 7] * scale, positions[i + 8] * scale];
+        
+        // Encontra valores min e max em cada eixo (Bounding Box)
+        const minX = Math.min(v0[0], v1[0], v2[0]);
+        const maxX = Math.max(v0[0], v1[0], v2[0]);
+        const minY = Math.min(v0[1], v1[1], v2[1]);
+        const maxY = Math.max(v0[1], v1[1], v2[1]);
+        const minZ = Math.min(v0[2], v1[2], v2[2]);
+        const maxZ = Math.max(v0[2], v1[2], v2[2]);
+        
+        // Armazena Bounding Box (AABB) do jogador
+        this.playerColliders.push({
+          min: [minX, minY, minZ],
+          max: [maxX, maxY, maxZ],
+          center: [(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2]
+        });
+      }
+    }
+  }
   
+  // Verifica colisão entre jogador e paredes
   checkCollision(pos, radius = 0.4) {
     for (let i = 0; i < this.boundingBoxes.length; i++) {
       const b = this.boundingBoxes[i];
@@ -192,14 +228,77 @@ class CollisionSystem {
     return { collides: false };
   }
   
+  // Verifica colisão baseada na mesh do jogador (mais precisa)
+  checkPlayerCollision(playerPos, playerFacingAngle, playerColliders) {
+    // Transforma as bounding boxes do jogador para a posição e rotação atual
+    for (let i = 0; i < this.boundingBoxes.length; i++) {
+      const wallBox = this.boundingBoxes[i];
+      
+      // Para cada bounding box do jogador
+      for (let j = 0; j < playerColliders.length; j++) {
+        const playerBox = playerColliders[j];
+        
+        // Calcula a posição transformada da bounding box do jogador
+        const sinAngle = Math.sin(playerFacingAngle);
+        const cosAngle = Math.cos(playerFacingAngle);
+        
+        // Transforma os pontos da bounding box do jogador
+        const playerMin = [
+          playerPos[0] + (playerBox.min[0] * cosAngle - playerBox.min[2] * sinAngle),
+          playerPos[1] + playerBox.min[1],
+          playerPos[2] + (playerBox.min[0] * sinAngle + playerBox.min[2] * cosAngle)
+        ];
+        
+        const playerMax = [
+          playerPos[0] + (playerBox.max[0] * cosAngle - playerBox.max[2] * sinAngle),
+          playerPos[1] + playerBox.max[1],
+          playerPos[2] + (playerBox.max[0] * sinAngle + playerBox.max[2] * cosAngle)
+        ];
+        
+        // Verifica colisão AABB-AABB (apenas no plano XZ)
+        const collisionX = playerMax[0] >= wallBox.min[0] && playerMin[0] <= wallBox.max[0];
+        const collisionZ = playerMax[2] >= wallBox.min[2] && playerMin[2] <= wallBox.max[2];
+        
+        if (collisionX && collisionZ) {
+          // Colisão detectada! Calcula a direção de repulsão
+          const wallCenter = [
+            (wallBox.min[0] + wallBox.max[0]) / 2,
+            0,
+            (wallBox.min[2] + wallBox.max[2]) / 2
+          ];
+          
+          const playerCenter = [
+            (playerMin[0] + playerMax[0]) / 2,
+            0,
+            (playerMin[2] + playerMax[2]) / 2
+          ];
+          
+          const dx = playerCenter[0] - wallCenter[0];
+          const dz = playerCenter[2] - wallCenter[2];
+          const dist = Math.sqrt(dx * dx + dz * dz) || 0.0001;
+          
+          return {
+            collides: true,
+            normal: [dx / dist, 0, dz / dist],
+            penetration: 0.1, // Penetração fixa para simplificar
+            wallIndex: i,
+            playerBoxIndex: j
+          };
+        }
+      }
+    }
+    
+    return { collides: false };
+  }
+  
   // Código para criar a geometria de debug (linhas) para as Bounding Boxes
-  createDebugGeometry(gl) {
-    if (!this.boundingBoxes.length) return null;
+  createDebugGeometry(gl, boundingBoxes, color = [0.0, 1.0, 0.0]) {
+    if (!boundingBoxes.length) return null;
     
     const positions = [];
     const indices = [];
     
-    this.boundingBoxes.forEach((bbox, idx) => {
+    boundingBoxes.forEach((bbox, idx) => {
       const baseIdx = idx * 8;
       
       const vertices = [
@@ -233,9 +332,8 @@ class CollisionSystem {
       indices: new Uint16Array(indices)
     };
     
-    // Assume que webglUtils.createBufferInfoFromArrays está disponível
-    this.debugBufferInfo = webglUtils.createBufferInfoFromArrays(gl, arrays);
-    return this.debugBufferInfo;
+    const bufferInfo = webglUtils.createBufferInfoFromArrays(gl, arrays);
+    return { bufferInfo, color };
   }
   
   toggleDebug() {
@@ -378,6 +476,8 @@ async function main() {
       moveSpeed: 10.0,
       pulseSpeed: 2.5,
       radius: 0.08,
+      meshData: null, // Para armazenar os dados da mesh
+      debugColliders: null, // Buffer de debug para os colliders
     },
     {
       name: "ghost_red",
@@ -393,7 +493,6 @@ async function main() {
       speed: 0.0,
       pulseSpeed: 0.0,
     },
-    // ... Outros fantasmas ...
     {
       name: "ghost_pink",
       url: "ghost_pink.obj",
@@ -477,6 +576,15 @@ async function main() {
   const player = characters.find((c) => c.isPlayer);
   const collisionSystem = new CollisionSystem();
 
+  // ---------- DEBUG: Controles ----------
+  let playerDebugEnabled = false;
+  
+  window.togglePlayerDebug = function() {
+    playerDebugEnabled = !playerDebugEnabled;
+    console.log(`Debug dos colliders do Pac-Man: ${playerDebugEnabled ? 'ON' : 'OFF'}`);
+    return playerDebugEnabled;
+  };
+
   // ---------- PARÂMETROS DE CENA ----------
   const zNear = 0.1;
   const zFar = 80;
@@ -491,6 +599,8 @@ async function main() {
       }
       const text = await resp.text();
       const data = parseOBJ(text);
+      ch.meshData = data; // Salva os dados da mesh
+      
       const arrays = {
         position: data.position,
         normal: data.normal,
@@ -499,6 +609,19 @@ async function main() {
       ch.bufferInfo = webglUtils.createBufferInfoFromArrays(gl, arrays);
       
       console.log("Carregado:", ch.name, "- vértices:", data.position.length / 3);
+      
+      // Se for o jogador, processa a mesh para criar colliders
+      if (ch.isPlayer) {
+        collisionSystem.processPlayerMesh(data.position, ch.scale);
+        console.log(`Colliders do Pac-Man criados: ${collisionSystem.playerColliders.length} bounding boxes`);
+        
+        // Cria buffer de debug para os colliders do jogador
+        ch.debugColliders = collisionSystem.createDebugGeometry(
+          gl, 
+          collisionSystem.playerColliders, 
+          [1.0, 0.5, 0.0] // Laranja
+        );
+      }
     })
   );
 
@@ -517,15 +640,15 @@ async function main() {
       
       // Processa a colisão do labirinto
       collisionSystem.processLabyrinthMesh(labData.position, 0);
-      collisionSystem.createDebugGeometry(gl);
+      collisionSystem.createDebugGeometry(gl, collisionSystem.boundingBoxes);
 
-        for (let i = 0; i < 60; ++i) {
-          spawnFruit();
-        }
-        console.log("Quantidade de frutas:", fruits.length);
+      for (let i = 0; i < 60; ++i) {
+        spawnFruit();
+      }
+      console.log("Quantidade de frutas:", fruits.length);
 
-      
       console.log("Labirinto carregado:", labData.position.length / 3, "vértices");
+      console.log("Bounding boxes do labirinto:", collisionSystem.boundingBoxes.length);
     } else {
       console.error("Erro ao carregar modelo/labirinth.obj");
     }
@@ -598,7 +721,6 @@ async function main() {
   function update(dt, totalTime) {
     if (!player) return;
 
-
     // CONTROLES DE ROTAÇÃO DA CÂMERA (opcional)
     let rotateCamera = 0;
     if (keys["q"]) rotateCamera += 1;
@@ -641,13 +763,43 @@ async function main() {
       const desiredX = player.pos[0] + moveX * player.moveSpeed * dt * Math.abs(moveForward);
       const desiredZ = player.pos[2] + moveZ * player.moveSpeed * dt * Math.abs(moveForward);
       
-      // Verifica colisão com paredes
+      // Verifica colisão com paredes usando a mesh do jogador
       const tempPos = [desiredX, player.pos[1], desiredZ];
-      const collision = collisionSystem.checkCollision(tempPos, player.radius * player.scale); // Usa o raio escalado
+      
+      // Usa colisão baseada na mesh (mais precisa)
+      const collision = collisionSystem.checkPlayerCollision(
+        tempPos, 
+        player.facingAngle, 
+        collisionSystem.playerColliders
+      );
       
       if (!collision.collides) {
         player.pos[0] = desiredX;
         player.pos[2] = desiredZ;
+      } else {
+        // Tenta movimento apenas no eixo X
+        const tempPosX = [desiredX, player.pos[1], player.pos[2]];
+        const collisionX = collisionSystem.checkPlayerCollision(
+          tempPosX, 
+          player.facingAngle, 
+          collisionSystem.playerColliders
+        );
+        
+        if (!collisionX.collides) {
+          player.pos[0] = desiredX;
+        }
+        
+        // Tenta movimento apenas no eixo Z
+        const tempPosZ = [player.pos[0], player.pos[1], desiredZ];
+        const collisionZ = collisionSystem.checkPlayerCollision(
+          tempPosZ, 
+          player.facingAngle, 
+          collisionSystem.playerColliders
+        );
+        
+        if (!collisionZ.collides) {
+          player.pos[2] = desiredZ;
+        }
       }
     }
 
@@ -676,24 +828,23 @@ async function main() {
     }
 
     // ===================== COLISÃO COM FANTASMAS =====================
-for (const ghost of characters) {
-  if (ghost.isPlayer) continue;
+    for (const ghost of characters) {
+      if (ghost.isPlayer) continue;
 
-  const dx = player.pos[0] - ghost.pos[0];
-  const dz = player.pos[2] - ghost.pos[2];
+      const dx = player.pos[0] - ghost.pos[0];
+      const dz = player.pos[2] - ghost.pos[2];
 
-  const r =
-    getPlayerRadius(player) +
-    getGhostRadius(ghost) +
-    0.15; // ajuste visual só para fantasmas
+      const r =
+        getPlayerRadius(player) +
+        getGhostRadius(ghost) +
+        0.15; // ajuste visual só para fantasmas
 
-  if (dx * dx + dz * dz <= r * r) {
-    player.pos[0] = 0;
-    player.pos[2] = 0;
-    break;
-  }
-}
-
+      if (dx * dx + dz * dz <= r * r) {
+        player.pos[0] = 0;
+        player.pos[2] = 0;
+        break;
+      }
+    }
   }
 
   // ===================== GAME LOOP - RENDER =====================
@@ -895,15 +1046,42 @@ for (const ghost of characters) {
       
       const worldLab = m4.translation(0, -1.0, 0);
       
-      webglUtils.setBuffersAndAttributes(gl, debugProgramInfo, collisionSystem.debugBufferInfo);
+      webglUtils.setBuffersAndAttributes(gl, debugProgramInfo, collisionSystem.debugBufferInfo.bufferInfo);
       webglUtils.setUniforms(debugProgramInfo, {
         u_projection: projection,
         u_view: view,
         u_world: worldLab,
-        u_color: [0.0, 1.0, 0.0] // Linhas verdes
+        u_color: collisionSystem.debugBufferInfo.color
       });
       
-      webglUtils.drawBufferInfo(gl, collisionSystem.debugBufferInfo, gl.LINES);
+      webglUtils.drawBufferInfo(gl, collisionSystem.debugBufferInfo.bufferInfo, gl.LINES);
+      
+      gl.enable(gl.CULL_FACE);
+      gl.useProgram(programInfo.program);
+    }
+
+    // ---------- DEBUG: bounding boxes do Pac-Man ----------
+    if (playerDebugEnabled && player.debugColliders && player.debugColliders.bufferInfo) {
+      gl.useProgram(debugProgramInfo.program);
+      gl.disable(gl.CULL_FACE);
+      
+      // Posição e rotação do Pac-Man
+      let worldPlayer = m4.translation(
+        player.pos[0],
+        player.pos[1] + (player.bobOffset || 0),
+        player.pos[2]
+      );
+      worldPlayer = m4.multiply(worldPlayer, m4.yRotation(player.facingAngle));
+      
+      webglUtils.setBuffersAndAttributes(gl, debugProgramInfo, player.debugColliders.bufferInfo);
+      webglUtils.setUniforms(debugProgramInfo, {
+        u_projection: projection,
+        u_view: view,
+        u_world: worldPlayer,
+        u_color: player.debugColliders.color
+      });
+      
+      webglUtils.drawBufferInfo(gl, player.debugColliders.bufferInfo, gl.LINES);
       
       gl.enable(gl.CULL_FACE);
       gl.useProgram(programInfo.program);
@@ -918,7 +1096,10 @@ for (const ghost of characters) {
   console.log("S ou ↓: TRÁS");
   console.log("A: ESQUERDA");
   console.log("D: DIREITA");
-  console.log("B: Debug de colisão");
+  console.log("B: Debug de colisão (paredes)");
+  console.log("P: Debug de colisão (Pac-Man)");
+  console.log("=== INFO COLISÃO ===");
+  // console.log(`Pac-Man: ${collisionSystem.playerColliders.length} bounding boxes`);
   
   requestAnimationFrame(render);
 }
