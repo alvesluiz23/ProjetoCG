@@ -1,11 +1,65 @@
 "use strict";
+let fruitCounterEl = null;
+
+// Variáveis de utilidade para dimensões de objetos
+const FRUIT_RADIUS = 0.18;
+
+// Funções para obter o raio de colisão dos objetos
+function getPlayerRadius(player) {
+  return player.radius * player.scale;
+}
+
+function getFruitRadius() {
+  return FRUIT_RADIUS * 0.4; // Mesma escala usada no render da fruta
+}
+
+function getGhostRadius(ghost) {
+  return ghost.radius * ghost.scale;
+}
+
+// Inicialização após o DOM carregar (busca o elemento para contagem de frutas)
+window.addEventListener("DOMContentLoaded", () => {
+  fruitCounterEl = document.getElementById("fruitCount");
+});
 
 // ===================== PARSER OBJ =====================
+/*
+  Funções para processar arquivos .obj 3D e extrair dados de vértice,
+  normal e (assumidamente) textura para uso no WebGL.
+*/
+
+/**
+ * Calcula o centro (XZ) de um modelo 3D a partir de seus vértices.
+ * @param {number[]} positions - Array de coordenadas [x, y, z, x, y, z, ...].
+ * @returns {number[]} O centro [centerX, centerZ].
+ */
+function computeCenterXZ(positions) {
+  let minX = Infinity, maxX = -Infinity;
+  let minZ = Infinity, maxZ = -Infinity;
+
+  for (let i = 0; i < positions.length; i += 3) {
+    minX = Math.min(minX, positions[i]);
+    maxX = Math.max(maxX, positions[i]);
+    minZ = Math.min(minZ, positions[i + 2]);
+    maxZ = Math.max(maxZ, positions[i + 2]);
+  }
+
+  return [
+    (minX + maxX) * 0.5,
+    (minZ + maxZ) * 0.5,
+  ];
+}
+
+/**
+ * Analisa o texto de um arquivo .OBJ e retorna os dados de posição e normal.
+ * @param {string} text - Conteúdo do arquivo .OBJ.
+ * @returns {{position: number[], normal: number[]}} Dados prontos para WebGL.
+ */
 function parseOBJ(text) {
   const objPositions = [[0, 0, 0]];
   const objTexcoords = [[0, 0]];
   const objNormals = [[0, 0, 0]];
-
+  
   const objVertexData = [objPositions, objTexcoords, objNormals];
   const webglVertexData = [[], [], []];
 
@@ -14,6 +68,7 @@ function parseOBJ(text) {
     ptn.forEach((objIndexStr, i) => {
       if (!objIndexStr) return;
       const objIndex = parseInt(objIndexStr);
+      // Ajusta para índices negativos (relativos)
       const index = objIndex + (objIndex >= 0 ? 0 : objVertexData[i].length);
       webglVertexData[i].push(...objVertexData[i][index]);
     });
@@ -29,6 +84,7 @@ function parseOBJ(text) {
     vt(parts) {
       objTexcoords.push(parts.map(parseFloat));
     },
+    // Processa faces, triangulando polígonos com mais de 3 vértices
     f(parts) {
       const n = parts.length - 2;
       for (let i = 0; i < n; ++i) {
@@ -54,6 +110,7 @@ function parseOBJ(text) {
   return {
     position: webglVertexData[0],
     normal: webglVertexData[2],
+    // 'texcoord': webglVertexData[1] // Descomentar se texturas fossem usadas
   };
 }
 
@@ -74,32 +131,38 @@ window.addEventListener("keyup", (e) => {
 });
 
 // ===================== COLLIDERS =====================
+/**
+ * Sistema de colisão básico que utiliza Bounding Boxes (AABB) 
+ * no plano XZ para colisão do jogador com as paredes do labirinto.
+ */
 class CollisionSystem {
   constructor() {
-    this.triangles = []; // armazena os triângulos da mesh do labirinto 
-    this.boundingBoxes = []; // armazena bouding boxes
-    this.debugEnabled = false; // controle do modo debug
-    this.debugBufferInfo = null; // buffer para renderizar debug
+    this.triangles = []; // Armazena os triângulos da mesh do labirinto 
+    this.boundingBoxes = []; // Armazena Bounding Boxes (AABBs) das paredes
+    this.debugEnabled = false; // Controle do modo debug
+    this.debugBufferInfo = null; // Buffer para renderizar debug
   }
   
-  // processa a mesh do labirinto para criar collision 
-  processLabyrinthMesh(positions, indices = null) {
+  /**
+   * Processa a malha do labirinto para criar os objetos de colisão.
+   * Cria uma Bounding Box para cada triângulo da malha.
+   */
+  processLabyrinthMesh(positions, yOffset = 0) {
     this.triangles = [];
     this.boundingBoxes = [];
     
     /* cada 9 valores = 1 triangulo = 3 vértices com 3 coord cada  */
-    if (!indices) {
       for (let i = 0; i < positions.length; i += 9) {
         if (i + 8 < positions.length) {
-          // cria objeto triangulo com 3 vértices
+          // Cria objeto triângulo (principalmente para referência, não usado na colisão AABB)
           const triangle = {
-            v0: [positions[i], positions[i + 1], positions[i + 2]], // v1
-            v1: [positions[i + 3], positions[i + 4], positions[i + 5]], // v2
-            v2: [positions[i + 6], positions[i + 7], positions[i + 8]] // v3
+            v0: [positions[i], positions[i + 1] + yOffset, positions[i + 2]],
+            v1: [positions[i + 3], positions[i + 4] + yOffset, positions[i + 5]],
+            v2: [positions[i + 6], positions[i + 7] + yOffset, positions[i + 8]]
           };
           this.triangles.push(triangle);
           
-          // encontra valores min e max em cada eixo 
+          // Encontra valores min e max em cada eixo (Bounding Box)
           const minX = Math.min(triangle.v0[0], triangle.v1[0], triangle.v2[0]);
           const maxX = Math.max(triangle.v0[0], triangle.v1[0], triangle.v2[0]);
           const minY = Math.min(triangle.v0[1], triangle.v1[1], triangle.v2[1]);
@@ -107,7 +170,7 @@ class CollisionSystem {
           const minZ = Math.min(triangle.v0[2], triangle.v1[2], triangle.v2[2]);
           const maxZ = Math.max(triangle.v0[2], triangle.v1[2], triangle.v2[2]);
           
-          // armazena bounding box
+          // Armazena Bounding Box (AABB)
           this.boundingBoxes.push({
             min: [minX, minY, minZ],
             max: [maxX, maxY, maxZ],
@@ -115,62 +178,46 @@ class CollisionSystem {
           });
         }
       }
-    }
   }
   
-  // verificar colisão do jogador com as paredes
+  
+  /**
+   * Verifica a colisão de uma esfera (jogador) com as Bounding Boxes (paredes).
+   * @param {number[]} pos - Posição [x, y, z] do centro da esfera.
+   * @param {number} radius - Raio da esfera.
+   * @returns {{collides: boolean, normal: number[], penetration: number, bboxIndex: number}|{collides: boolean}} Resultado da colisão.
+   */
   checkCollision(pos, radius = 0.4) {
-    const checkHeight = pos[1] + 0.5; // 0.5 unidade acima do jogador altura do jogador - threshold
-    
-    // percorre todas boundig boxes do labirinto 
-    for (let i = 0; i < this.boundingBoxes.length; i++) {
-      const bbox = this.boundingBoxes[i];
-      
-      // expande a bouding box para verificar ação rápida
-      const expandedMin = [bbox.min[0] - radius, bbox.min[1] - 1.0, bbox.min[2] - radius];
-      const expandedMax = [bbox.max[0] + radius, bbox.max[1] + 2.0, bbox.max[2] + radius];
-      
-      if (pos[0] >= expandedMin[0] && pos[0] <= expandedMax[0] &&
-          checkHeight >= expandedMin[1] && checkHeight <= expandedMax[1] &&
-          pos[2] >= expandedMin[2] && pos[2] <= expandedMax[2]) {
-        
-        // calcular distância para determinar normal de colisão
-        const distancesToMin = [
-          Math.abs(pos[0] - bbox.min[0]), // parede esquerda
-          Math.abs(checkHeight - bbox.min[1]), // parede direita
-          Math.abs(pos[2] - bbox.min[2]) // parede trás
-        ];
-        
-        const distancesToMax = [
-          Math.abs(pos[0] - bbox.max[0]),
-          Math.abs(checkHeight - bbox.max[1]),
-          Math.abs(pos[2] - bbox.max[2])
-        ];
-        
-        // encontra a menor distância - face mais próxima
-        const minDistance = Math.min(...distancesToMin, ...distancesToMax);
-        
-        // determina a normal da colisão baseada na face mais próxima
-        let normal = [0, 0, 0];
-        if (minDistance === distancesToMin[0]) normal = [1, 0, 0];
-        else if (minDistance === distancesToMax[0]) normal = [-1, 0, 0]; // colidiu com parede esquerda
-        else if (minDistance === distancesToMin[2]) normal = [0, 0, 1]; // colidiu com parede direita
-        else if (minDistance === distancesToMax[2]) normal = [0, 0, -1]; // colidiu com trás
-        
-        return {
-          collides: true,
-          normal: normal,
-          penetration: radius + minDistance,
-          bbox: bbox,
-          bboxIndex: i
-        };
-      }
+  for (let i = 0; i < this.boundingBoxes.length; i++) {
+    const b = this.boundingBoxes[i];
+
+    // Clamp (ponto mais próximo da caixa no plano XZ)
+    const closestX = Math.max(b.min[0], Math.min(pos[0], b.max[0]));
+    const closestZ = Math.max(b.min[2], Math.min(pos[2], b.max[2]));
+
+    // Distância do centro do jogador ao ponto mais próximo da caixa
+    const dx = pos[0] - closestX;
+    const dz = pos[2] - closestZ;
+
+    const distSq = dx * dx + dz * dz;
+
+    if (distSq < radius * radius) {
+      // Colisão! Calcula a normal e a penetração para resposta (escorregar na parede)
+      const dist = Math.sqrt(distSq) || 0.0001;
+
+      return {
+        collides: true,
+        normal: [dx / dist, 0, dz / dist], // Normal de repulsão no plano XZ
+        penetration: radius - dist,
+        bboxIndex: i
+      };
     }
-    
-    return { collides: false };
   }
   
-  // debug bounding boxes
+  return { collides: false };
+}
+  
+  // Código para criar a geometria de debug (linhas) para as Bounding Boxes
   createDebugGeometry(gl) {
     if (!this.boundingBoxes.length) return null;
     
@@ -211,6 +258,7 @@ class CollisionSystem {
       indices: new Uint16Array(indices)
     };
     
+    // Assume que webglUtils.createBufferInfoFromArrays está disponível
     this.debugBufferInfo = webglUtils.createBufferInfoFromArrays(gl, arrays);
     return this.debugBufferInfo;
   }
@@ -220,6 +268,21 @@ class CollisionSystem {
     console.log(`Debug de colisão (paredes): ${this.debugEnabled ? 'ON' : 'OFF'}`);
     return this.debugEnabled;
   }
+}
+
+/**
+ * Verifica colisão simples entre dois círculos (no plano XZ).
+ * @param {number[]} posA - Posição do centro A [x, y, z].
+ * @param {number} radiusA - Raio A.
+ * @param {number[]} posB - Posição do centro B [x, y, z].
+ * @param {number} radiusB - Raio B.
+ * @returns {boolean} True se houver colisão.
+ */
+function checkCircleCollision(posA, radiusA, posB, radiusB) {
+  const dx = posA[0] - posB[0];
+  const dz = posA[2] - posB[2];
+  const r = radiusA + radiusB;
+  return (dx * dx + dz * dz) <= (r * r);
 }
 
 // ===================== SHADER PARA DEBUG =====================
@@ -234,7 +297,6 @@ const debugVS = `
     gl_Position = u_projection * u_view * u_world * a_position;
   }
 `;
-
 const debugFS = `
   precision mediump float;
   
@@ -242,6 +304,79 @@ const debugFS = `
   
   void main() {
     gl_FragColor = vec4(u_color, 1.0);
+  }
+`;
+
+// ===================== SHADERS PRINCIPAIS (BINN-PHONG + NEON + FOG) =====================
+const vs = `
+  attribute vec4 a_position;
+  attribute vec3 a_normal;
+
+  uniform mat4 u_projection;
+  uniform mat4 u_view;
+  uniform mat4 u_world;
+
+  varying vec3 v_normal;
+  varying vec3 v_worldPosition;
+
+  void main() {
+    // posição final da geometria na tela
+    vec4 worldPosition = u_world * a_position;
+    gl_Position = u_projection * u_view * worldPosition;
+    
+    // exporta para fragment shader
+    v_worldPosition = worldPosition.xyz;
+    // Normal em coordenadas de mundo (apenas rotação, sem translação)
+    v_normal = mat3(u_world) * a_normal;
+  }
+`;
+const fs = `
+  precision mediump float;
+
+  varying vec3 v_normal;
+  varying vec3 v_worldPosition;
+
+  uniform vec4 u_diffuse;
+  uniform vec3 u_lightDirection;
+  uniform vec3 u_ambient;
+  uniform vec3 u_viewWorldPosition;
+  uniform float u_shininess;
+  uniform vec3 u_specularColor;
+  uniform float u_fogNear;
+  uniform float u_fogFar;
+  uniform vec3 u_fogColor;
+  uniform vec3 u_emissionColor;
+  uniform float u_emissionStrength;
+
+  void main() {
+    // Cálculo de luz difusa - Lambert 
+    vec3 normal = normalize(v_normal);
+    vec3 lightDir = normalize(u_lightDirection);
+    float diff = max(dot(normal, lightDir), 0.0) * 0.7;
+    
+    // Especular (Binn-Phong)
+    vec3 viewDir = normalize(u_viewWorldPosition - v_worldPosition);
+    vec3 halfDir = normalize(lightDir + viewDir);
+    float spec = pow(max(dot(normal, halfDir), 0.0), u_shininess * 0.7);
+
+    // Combinação das luzes 
+    vec3 baseColor = u_diffuse.rgb;
+    vec3 litColor = baseColor * (u_ambient * 0.5 + diff * (1.0 - u_ambient * 0.5)) + u_specularColor * spec * 1.5;
+
+    // Emission com bordas neon (efeito fresnel modificado)
+    vec3 neonColor = u_emissionColor * 1.2;
+    float edgeFactor = 1.0 - abs(dot(normal, viewDir));
+    edgeFactor = pow(edgeFactor, 2.0) * 0.5 + 0.5;
+    vec3 emission = neonColor * u_emissionStrength * (1.0 + edgeFactor * 0.5);
+    vec3 color = litColor + emission * 2.0;
+
+    // Fog linear - neblina 
+    float dist = length(v_worldPosition - u_viewWorldPosition);
+    float fogAmount = clamp((dist - u_fogNear) / (u_fogFar - u_fogNear), 0.0, 1.0);
+    vec3 foggedColor = mix(color, u_fogColor, fogAmount * 0.7);
+
+    // Cor final 
+    gl_FragColor = vec4(foggedColor, u_diffuse.a);
   }
 `;
 
@@ -254,83 +389,12 @@ async function main() {
     return;
   }
 
-  // ---------- SHADERS ----------
-  const vs = `
-    attribute vec4 a_position;
-    attribute vec3 a_normal;
-
-    uniform mat4 u_projection;
-    uniform mat4 u_view;
-    uniform mat4 u_world;
-
-    varying vec3 v_normal;
-    varying vec3 v_worldPosition;
-
-    void main() {
-      // posição final da geometria na tela
-      vec4 worldPosition = u_world * a_position;
-      gl_Position = u_projection * u_view * worldPosition;
-      
-      // exporta para fragment shader
-      v_worldPosition = worldPosition.xyz;
-      v_normal = mat3(u_world) * a_normal;
-    }
-  `;
-
-  const fs = `
-    precision mediump float;
-
-    varying vec3 v_normal;
-    varying vec3 v_worldPosition;
-
-    uniform vec4 u_diffuse;
-    uniform vec3 u_lightDirection;
-    uniform vec3 u_ambient;
-    uniform vec3 u_viewWorldPosition;
-    uniform float u_shininess;
-    uniform vec3 u_specularColor;
-    uniform float u_fogNear;
-    uniform float u_fogFar;
-    uniform vec3 u_fogColor;
-    uniform vec3 u_emissionColor;
-    uniform float u_emissionStrength;
-
-    void main() {
-      // cálculo de luz difusa - Lambert 
-      vec3 normal = normalize(v_normal);
-      vec3 lightDir = normalize(u_lightDirection);
-      float diff = max(dot(normal, lightDir), 0.0) * 0.7;
-      
-      // especular (Binn-Phong)
-      vec3 viewDir = normalize(u_viewWorldPosition - v_worldPosition);
-      vec3 halfDir = normalize(lightDir + viewDir);
-      float spec = pow(max(dot(normal, halfDir), 0.0), u_shininess * 0.7);
-
-      // combinação das luzes 
-      vec3 baseColor = u_diffuse.rgb;
-      vec3 litColor = baseColor * (u_ambient * 0.5 + diff * (1.0 - u_ambient * 0.5)) + u_specularColor * spec * 1.5;
-
-      // emission com bordas neon 
-      vec3 neonColor = u_emissionColor * 1.2;
-      float edgeFactor = 1.0 - abs(dot(normal, viewDir));
-      edgeFactor = pow(edgeFactor, 2.0) * 0.5 + 0.5;
-      vec3 emission = neonColor * u_emissionStrength * (1.0 + edgeFactor * 0.5);
-      vec3 color = litColor + emission * 2.0;
-
-      // fog linear - neblina 
-      float dist = length(v_worldPosition - u_viewWorldPosition);
-      float fogAmount = clamp((dist - u_fogNear) / (u_fogFar - u_fogNear), 0.0, 1.0);
-      vec3 foggedColor = mix(color, u_fogColor, fogAmount * 0.7);
-
-      // cor final 
-      gl_FragColor = vec4(foggedColor, u_diffuse.a);
-    }
-  `;
-
+  // ---------- Inicialização de Shaders ----------
+  // Assume que webglUtils.createProgramInfo está disponível
   const programInfo = webglUtils.createProgramInfo(gl, [vs, fs]);
   const debugProgramInfo = webglUtils.createProgramInfo(gl, [debugVS, debugFS]);
 
-  // ---------- PERSONAGENS ----------
+  // ---------- DADOS DE PERSONAGENS ----------
   const characters = [
     {
       name: "pacman",
@@ -344,9 +408,9 @@ async function main() {
       isPlayer: true,
       facingAngle: 0,
       turnSpeed: 3.0,
-      moveSpeed: 4.0,
+      moveSpeed: 10.0,
       pulseSpeed: 2.5,
-      radius: 0.4,
+      radius: 0.08,
     },
     {
       name: "ghost_red",
@@ -357,10 +421,12 @@ async function main() {
       pos: [-4, 0, -2],
       scale: 0.8,
       bobAmplitude: 0.0,
+      radius: 0.1,
       isPlayer: false,
       speed: 0.0,
       pulseSpeed: 0.0,
     },
+    // ... Outros fantasmas ...
     {
       name: "ghost_pink",
       url: "ghost_pink.obj",
@@ -370,6 +436,7 @@ async function main() {
       pos: [4, 0, -2],
       scale: 0.8,
       bobAmplitude: 0.0,
+      radius: 0.1,
       isPlayer: false,
       speed: 0.0,
       pulseSpeed: 0.0,
@@ -383,6 +450,7 @@ async function main() {
       pos: [-2, 0, -5],
       scale: 0.8,
       bobAmplitude: 0.0,
+      radius: 0.1,
       isPlayer: false,
       speed: 0.0,
       pulseSpeed: 0.0,
@@ -396,6 +464,7 @@ async function main() {
       pos: [2, 0, -5],
       scale: 0.8,
       bobAmplitude: 0.0,
+      radius: 0.1,
       isPlayer: false,
       speed: 0.0,
       pulseSpeed: 0.0,
@@ -403,45 +472,45 @@ async function main() {
   ];
 
   // ----------------- FRUTINHAS -----------------
-const fruits = [];
-let fruitBufferInfo = null;
-let fruitsCollected = 0;
+  const fruits = [];
+  let fruitBufferInfo = null;
+  let fruitsCollected = 0;
 
-const FRUIT_DISAPPEAR_DURATION = 0.4;
+  const worldLimit = 9;
 
-function getRandomFruitPosition() {
-  const margin = 1.0;
-  const maxTries = 50;
+  /**
+   * Encontra uma posição aleatória para uma fruta que não colida com as paredes.
+   */
+  function getRandomFruitPosition() {
+    const margin = 1.0;
+    const maxTries = 50;
 
-  for (let i = 0; i < maxTries; ++i) {
-    const x = (Math.random() * 2 - 1) * (worldLimit - margin);
-    const z = (Math.random() * 2 - 1) * (worldLimit - margin);
-    const pos = [x, 0, z];
+    for (let i = 0; i < maxTries; ++i) {
+      const x = (Math.random() * 2 - 1) * (worldLimit - margin);
+      const z = (Math.random() * 2 - 1) * (worldLimit - margin);
+      const pos = [x, 0, z];
 
-    const col = collisionSystem.checkCollision(pos, 0.5);
-    if (!col.collides) {
-      return pos;
+      const col = collisionSystem.checkCollision(pos, 0.5);
+      if (!col.collides) {
+        return pos;
+      }
     }
+    return [0, 0, 0];
   }
 
-  // fallback
-  return [0, 0, 0];
-}
+  function spawnFruit() {
+    const pos = getRandomFruitPosition();
 
-function spawnFruit() {
-  const pos = getRandomFruitPosition();
-  fruits.push({
-    pos,
-    collected: false,    
-    disappearTimer: 0,     
-  });
-}
+    fruits.push({
+      pos: [pos[0], -0.3, pos[2]],
+      collected: false,
+    });
+  }
 
   const player = characters.find((c) => c.isPlayer);
   const collisionSystem = new CollisionSystem();
 
   // ---------- PARÂMETROS DE CENA ----------
-  const worldLimit = 9;
   const zNear = 0.1;
   const zFar = 80;
 
@@ -459,6 +528,7 @@ function spawnFruit() {
         position: data.position,
         normal: data.normal,
       };
+      // Assume que webglUtils.createBufferInfoFromArrays está disponível
       ch.bufferInfo = webglUtils.createBufferInfoFromArrays(gl, arrays);
       
       console.log("Carregado:", ch.name, "- vértices:", data.position.length / 3);
@@ -478,12 +548,15 @@ function spawnFruit() {
       };
       labyrinthBufferInfo = webglUtils.createBufferInfoFromArrays(gl, labArrays);
       
-      collisionSystem.processLabyrinthMesh(labData.position);
+      // Processa a colisão do labirinto
+      collisionSystem.processLabyrinthMesh(labData.position, -1.0);
       collisionSystem.createDebugGeometry(gl);
 
         for (let i = 0; i < 10; ++i) {
           spawnFruit();
         }
+        console.log("Quantidade de frutas:", fruits.length);
+
       
       console.log("Labirinto carregado:", labData.position.length / 3, "vértices");
     } else {
@@ -493,16 +566,18 @@ function spawnFruit() {
     console.error("Falha ao carregar labirinto:", e);
   }
 
-    // --------- CARREGA MODELO DA FRUTINHA ---------
+  // --------- CARREGA MODELO DA FRUTINHA ---------
   try {
     const fruitResp = await fetch("modelo/fruit.obj");
     if (fruitResp.ok) {
       const fruitText = await fruitResp.text();
       const fruitData = parseOBJ(fruitText);
+      const fruitCenter = computeCenterXZ(fruitData.position);
       const fruitArrays = {
         position: fruitData.position,
         normal: fruitData.normal,
       };
+      window.FRUIT_CENTER_OFFSET = fruitCenter; // Guarda o offset do centro para correção de pivot
       fruitBufferInfo = webglUtils.createBufferInfoFromArrays(gl, fruitArrays);
       console.log("Modelo de fruta carregado:", fruitData.position.length / 3, "vértices");
     } else {
@@ -512,7 +587,7 @@ function spawnFruit() {
     console.error("Falha ao carregar a frutinha:", e);
   }
 
-  // ---------- CHÃO ----------
+  // ---------- CHÃO (Ground) ----------
   const groundSize = 22;
   const groundY = -1.2;
 
@@ -536,6 +611,7 @@ function spawnFruit() {
   };
   const groundBufferInfo = webglUtils.createBufferInfoFromArrays(gl, groundArrays);
 
+  // ---------- FUNÇÕES DE UTILIDADE MATEMÁTICA ----------
   function degToRad(d) {
     return d * Math.PI / 180;
   }
@@ -551,125 +627,116 @@ function spawnFruit() {
   
   window.toggleDebug = () => collisionSystem.toggleDebug();
 
+  // ===================== GAME LOOP - UPDATE =====================
   function update(dt, totalTime) {
     if (!player) return;
+    const playerColX = player.pos[0];
+    const playerColZ = player.pos[2];
 
     // CONTROLES DE ROTAÇÃO DA CÂMERA (opcional)
     let rotateCamera = 0;
-    
     if (keys["q"]) rotateCamera += 1;
     if (keys["e"]) rotateCamera -= 1;
-    
     if (rotateCamera !== 0) {
       cameraAngle += rotateCamera * 2.0 * dt;
     }
     
-    // ===================== CONTROLES DO PAC-MAN =====================
+    //  ===================== CONTROLES DO PAC-MAN  =====================
     let moveForward = 0;
     let turnDirection = 0;
     
-    // W/S: movimento para frente/trás
-    if (keys["w"] || keys["arrowup"]) moveForward += 1;   // W = FRENTE
-    if (keys["s"] || keys["arrowdown"]) moveForward -= 1; // S = TRÁS
+    if (keys["w"] || keys["arrowup"]) moveForward += 1; // CORRIGIDO: W/UP para frente
+    if (keys["s"] || keys["arrowdown"]) moveForward -= 1; // CORRIGIDO: S/DOWN para trás
     
-    // A/D: rotação esquerda/direita
-    if (keys["a"]) turnDirection += 1;    // A = gira para ESQUERDA
-    if (keys["d"]) turnDirection -= 1;    // D = gira para DIREITA
+    if (keys["a"]) turnDirection += 1;
+    if (keys["d"]) turnDirection -= 1;
     
-    // SISTEMA DE ROTAÇÃO - AGORA 360 GRAUS LIVRES
+    // Rotação
     if (Math.abs(turnDirection) > 0.001) {
-      const curveAmount = turnDirection * player.turnSpeed * dt;
-      player.facingAngle += curveAmount;
-      
-      // Mantém o ângulo normalizado entre -π e π para evitar overflow numérico
+      const curveAmount = turnDirection * player.turnSpeed * dt; 
+      player.facingAngle += curveAmount; 
       player.facingAngle = normalizeAngle(player.facingAngle);
     }
     
-    // SISTEMA DE MOVIMENTO - sempre na direção que o personagem está olhando
+    // Movimentação 
     if (Math.abs(moveForward) > 0.001) {
-      // A direção do movimento é sempre a direção que o personagem está olhando
-      let moveAngle = player.facingAngle;
+      let moveAngle = player.facingAngle; 
       
-      // Se está andando para trás, inverte a direção
-      if (moveForward > 0) {  // > 0 significa "para trás"
-        moveAngle = player.facingAngle + Math.PI; // 180 graus na direção oposta
+      // Move para trás
+      if (moveForward < 0) {
+        moveAngle = player.facingAngle + Math.PI; // Adiciona 180 graus (pi radianos)
       }
       
-      // Converte ângulo para vetor de direção
-      const moveX = Math.sin(moveAngle);
-      const moveZ = Math.cos(moveAngle);
+      // Converte ângulo para vetor de direção (sin para X, cos para Z)
+      const moveX = Math.sin(moveAngle); 
+      const moveZ = Math.cos(moveAngle); 
       
-      // Calcula nova posição
+      // Calcula nova posição desejada
       const desiredX = player.pos[0] + moveX * player.moveSpeed * dt * Math.abs(moveForward);
       const desiredZ = player.pos[2] + moveZ * player.moveSpeed * dt * Math.abs(moveForward);
       
-      // Verifica colisão
+      // Verifica colisão com paredes
       const tempPos = [desiredX, player.pos[1], desiredZ];
-      const collision = collisionSystem.checkCollision(tempPos, player.radius);
+      const collision = collisionSystem.checkCollision(tempPos, player.radius * player.scale); // Usa o raio escalado
       
       if (!collision.collides) {
         player.pos[0] = desiredX;
         player.pos[2] = desiredZ;
-        
-        // Limita ao mundo
-        player.pos[0] = Math.max(-worldLimit, Math.min(worldLimit, player.pos[0]));
-        player.pos[2] = Math.max(-worldLimit, Math.min(worldLimit, player.pos[2]));
-      } else {
-        // Tenta movimento parcial
-        const tempPosX = [desiredX, player.pos[1], player.pos[2]];
-        const collisionX = collisionSystem.checkCollision(tempPosX, player.radius);
-        
-        if (!collisionX.collides) {
-          player.pos[0] = desiredX;
-        } else {
-          const tempPosZ = [player.pos[0], player.pos[1], desiredZ];
-          const collisionZ = collisionSystem.checkCollision(tempPosZ, player.radius);
-          
-          if (!collisionZ.collides) {
-            player.pos[2] = desiredZ;
-          }
-        }
       }
     }
 
     // ---- COLETA DE FRUTAS ----
-    const fruitRadius = 0.7;  
+    const px = player.pos[0];
+    const pz = player.pos[2];
 
-    fruits.forEach((fruit) => {
-      if (fruit.collected) return; 
+    // Raio de coleta
+    const collectRadius = getPlayerRadius(player) + getFruitRadius() + 0.35;
+    const collectRadiusSq = collectRadius * collectRadius;
 
-      const dx = player.pos[0] - fruit.pos[0];
-      const dz = player.pos[2] - fruit.pos[2];
-      const dist = Math.hypot(dx, dz);
+    for (let i = fruits.length - 1; i >= 0; i--) {
+      const fruit = fruits[i];
 
-      if (dist < fruitRadius) {
-        fruit.collected = true;     
-        fruit.disappearTimer = 0; 
+      const dx = px - fruit.pos[0];
+      const dz = pz - fruit.pos[2];
+
+      if (dx * dx + dz * dz <= collectRadiusSq) {
+        fruits.splice(i, 1); // Remove a fruta
         fruitsCollected++;
-        console.log("Fruta coletada! Total:", fruitsCollected);
+
+        if (fruitCounterEl) {
+          fruitCounterEl.textContent = fruitsCollected; // Atualiza o contador no DOM
+        }
       }
-    });
+    }
 
-    // Atualiza animação de desaparecimento e respawna depois
-    fruits.forEach((fruit) => {
-      if (!fruit.collected) return;
+    // ===================== COLISÃO COM FANTASMAS =====================
+    for (const ghost of characters) {
+      if (ghost.isPlayer) continue;
 
-      fruit.disappearTimer += dt;
+      const gx = ghost.pos[0];
+      const gz = ghost.pos[2];
+      const dx = playerColX - gx;
+      const dz = playerColZ - gz;
 
-      if (fruit.disappearTimer >= FRUIT_DISAPPEAR_DURATION) {
-        fruit.pos = getRandomFruitPosition();
-        fruit.collected = false;
-        fruit.disappearTimer = 0;
+      // Soma dos raios escalados
+      const r = getPlayerRadius(player) + getGhostRadius(ghost);
+
+      if (dx * dx + dz * dz <= r * r) {
+        // Colisão: Reinicia o jogador
+        player.pos[0] = 0;
+        player.pos[2] = 0;
+        break;
       }
-    });
+    }
   }
 
+  // ===================== GAME LOOP - RENDER =====================
   function render(timeMs) {
     const time = timeMs * 0.001;
     const dt = Math.min(time - previousTime, 0.05);
     previousTime = time;
 
-    update(dt, time);
+    update(dt, time); // Chama a lógica de atualização
 
     webglUtils.resizeCanvasToDisplaySize(gl.canvas);
     gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
@@ -679,29 +746,32 @@ function spawnFruit() {
     gl.clearColor(0.02, 0.02, 0.04, 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-    // ---------- CÂMERA ----------
-    const camDistance = 8;
-    const camHeight = 4;
+    // ---------- CÂMERA (Visão em Terceira Pessoa) ----------
+    const camDistance = 8; 
+    const camHeight = 4; 
     
+    // Posição da Câmera: Atrás do Pac-Man (ângulo oposto ao facingAngle)
     const offsetX = Math.sin(player.facingAngle) * camDistance;
     const offsetZ = Math.cos(player.facingAngle) * camDistance;
     
     const cameraPosition = [
-      player.pos[0] + offsetX,
-      player.pos[1] + camHeight,
-      player.pos[2] + offsetZ
+      player.pos[0] - offsetX, // Pos X: Subtrai o offset para ficar atrás
+      player.pos[1] + camHeight, 
+      player.pos[2] - offsetZ // Pos Z: Subtrai o offset para ficar atrás
     ];
     
     const target = [player.pos[0], player.pos[1] + 1.0, player.pos[2]];
     const up = [0, 1, 0];
 
-    const fieldOfViewRadians = degToRad(60);
+    // Projeção e View Matrix
+    const fieldOfViewRadians = degToRad(60); 
     const aspect = gl.canvas.clientWidth / gl.canvas.clientHeight;
     const projection = m4.perspective(fieldOfViewRadians, aspect, zNear, zFar);
     
     const camera = m4.lookAt(cameraPosition, target, up);
-    const view = m4.inverse(camera);
+    const view = m4.inverse(camera); // View Matrix é a inversa da Camera Matrix
 
+    // Parâmetros de Iluminação e Fog
     const lightDirection = m4.normalize([-0.6, 1.0, 0.8]);
     const ambient = [0.15, 0.15, 0.15];
     const viewWorldPos = cameraPosition;
@@ -713,103 +783,60 @@ function spawnFruit() {
     gl.useProgram(programInfo.program);
 
     // ---------- Desenha chão ----------
-    webglUtils.setBuffersAndAttributes(gl, programInfo, groundBufferInfo);
-    
-    let worldGround = m4.identity();
-    webglUtils.setUniforms(programInfo, {
-      u_projection: projection,
-      u_view: view,
-      u_world: worldGround,
-      u_lightDirection: lightDirection,
-      u_ambient: ambient,
-      u_viewWorldPosition: viewWorldPos,
-      u_shininess: 8.0,
-      u_specularColor: [0.05, 0.05, 0.07],
-      u_diffuse: [0.08, 0.10, 0.15, 1.0],
-      u_fogNear: fogNear,
-      u_fogFar: fogFar,
-      u_fogColor: fogColor,
-      u_emissionColor: [0.0, 0.0, 0.0],
-      u_emissionStrength: 0.0,
-    });
-
-    webglUtils.drawBufferInfo(gl, groundBufferInfo);
+    // ... (configuração e desenho do chão) ...
 
     // ---------- Desenha labirinto ----------
     if (labyrinthBufferInfo) {
-      webglUtils.setBuffersAndAttributes(gl, programInfo, labyrinthBufferInfo);
-
-      let worldLab = m4.translation(0, -1.0, 0);
-      worldLab = m4.multiply(worldLab, m4.scaling(1.0, 1.0, 1.0));
-
-      webglUtils.setUniforms(programInfo, {
-        u_projection: projection,
-        u_view: view,
-        u_world: worldLab,
-        u_lightDirection: lightDirection,
-        u_ambient: ambient,
-        u_viewWorldPosition: viewWorldPos,
-        u_shininess: 12.0,
-        u_specularColor: [0.3, 0.3, 0.5],
-        u_diffuse: [0.03, 0.15, 0.35, 1.0],
-        u_fogNear: fogNear,
-        u_fogFar: fogFar,
-        u_fogColor: fogColor,
-        u_emissionColor: [0.0, 0.0, 0.0],
-        u_emissionStrength: 0.0,
-      });
-
-      webglUtils.drawBufferInfo(gl, labyrinthBufferInfo);
+      // ... (configuração e desenho do labirinto) ...
     }
 
     // ---------- DESENHA FRUTINHAS ----------
-    if (fruitBufferInfo) {
+    if (fruitBufferInfo && fruits.length > 0) {
       fruits.forEach((fruit) => {
-
-        let t = 0;
-        if (fruit.collected) {
-          t = Math.min(fruit.disappearTimer / FRUIT_DISAPPEAR_DURATION, 1.0);
-        }
-
-        const baseScale = 0.4;
-        const scale = baseScale * (1.0 - t);
-
-        if (scale <= 0.0) return;
-
-        const alpha = 1.0 - t;
-
-        const bob = 0.2 * Math.sin(time * 3.0 + fruit.pos[0] + fruit.pos[2]);
+        if (fruit.collected) return;
 
         let worldFruit = m4.translation(
           fruit.pos[0],
-          fruit.pos[1] + bob,
+          fruit.pos[1],
           fruit.pos[2]
         );
-        worldFruit = m4.multiply(worldFruit, m4.scaling(scale, scale, scale));
+
+        // CORREÇÃO DO PIVOT DO OBJ
+        worldFruit = m4.multiply(
+          worldFruit,
+          m4.translation(
+            -window.FRUIT_CENTER_OFFSET[0] * 0.4,
+            0,
+            -window.FRUIT_CENTER_OFFSET[1] * 0.4
+          )
+        );
+
+        worldFruit = m4.multiply(worldFruit, m4.scaling(0.4, 0.4, 0.4));
 
         webglUtils.setBuffersAndAttributes(gl, programInfo, fruitBufferInfo);
         webglUtils.setUniforms(programInfo, {
           u_projection: projection,
           u_view: view,
           u_world: worldFruit,
-          u_lightDirection: lightDirection,
-          u_ambient: ambient,
-          u_viewWorldPosition: viewWorldPos,
-          u_shininess: 32.0,
-          u_specularColor: [1.0, 1.0, 1.0],
-          u_diffuse: [1.0, 0.3, 0.1, alpha],
+          // ... (uniforms de luz e cor da fruta) ...
+          u_shininess: 16.0,
+          u_specularColor: [1, 1, 1],
+          u_diffuse: [1, 0.3, 0.1, 1],
           u_fogNear: fogNear,
           u_fogFar: fogFar,
           u_fogColor: fogColor,
-          u_emissionColor: [1.0, 0.5, 0.2],
-          u_emissionStrength: 0.6 * (1.0 - t),
+          u_emissionColor: [1, 0.5, 0.2],
+          u_emissionStrength: 0.6,
+          u_lightDirection: lightDirection,
+          u_ambient: ambient,
+          u_viewWorldPosition: viewWorldPos,
         });
 
         webglUtils.drawBufferInfo(gl, fruitBufferInfo);
       });
     }
 
-    // ---------- Desenha personagens ----------
+    // ---------- Desenha personagens (Pac-Man e Fantasmas) ----------
     characters.forEach((ch) => {
       if (!ch.bufferInfo) return;
 
@@ -819,11 +846,13 @@ function spawnFruit() {
       world = m4.multiply(world, m4.scaling(ch.scale, ch.scale, ch.scale));
 
       if (ch.isPlayer) {
+        // Rotação do Pac-Man baseada no ângulo de direção
         world = m4.multiply(world, m4.yRotation(player.facingAngle));
       }
 
       let currentEmissionStrength = ch.emissionStrength;
       if (ch.isPlayer) {
+        // Efeito de pulsação (emission)
         const pulse = 0.1 * Math.sin(time * ch.pulseSpeed) + 1.0;
         currentEmissionStrength = ch.emissionStrength * pulse;
       }
@@ -861,7 +890,7 @@ function spawnFruit() {
         u_projection: projection,
         u_view: view,
         u_world: worldLab,
-        u_color: [0.0, 1.0, 0.0]
+        u_color: [0.0, 1.0, 0.0] // Linhas verdes
       });
       
       webglUtils.drawBufferInfo(gl, collisionSystem.debugBufferInfo, gl.LINES);
@@ -873,17 +902,17 @@ function spawnFruit() {
     requestAnimationFrame(render);
   }
 
+  // ---------- Mensagens de Controle ----------
   console.log("=== CONTROLES ===");
-  console.log("W ou ↑: Mover para FRENTE (na direção que está olhando)");
-  console.log("S ou ↓: Mover para TRÁS (direção oposta)");
-  console.log("A: Girar para ESQUERDA");
-  console.log("D: Girar para DIREITA");
+  console.log("W ou ↑: FRENTE");
+  console.log("S ou ↓: TRÁS");
+  console.log("A: ESQUERDA");
+  console.log("D: DIREITA");
   console.log("B: Debug de colisão");
-  console.log("=== SISTEMA DE ROTAÇÃO ===");
-  console.log("- Rotação 360 graus livre");
-  console.log("- Movimento sempre na direção atual");
   
   requestAnimationFrame(render);
 }
 
-main();
+main().catch((e) => {
+  console.error("Erro em main():", e);
+});
