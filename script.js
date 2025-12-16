@@ -516,7 +516,7 @@ async function main() {
       labyrinthBufferInfo = webglUtils.createBufferInfoFromArrays(gl, labArrays);
       
       // Processa a colisão do labirinto
-      collisionSystem.processLabyrinthMesh(labData.position, -1.0);
+      collisionSystem.processLabyrinthMesh(labData.position, 0);
       collisionSystem.createDebugGeometry(gl);
 
         for (let i = 0; i < 60; ++i) {
