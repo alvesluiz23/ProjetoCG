@@ -188,34 +188,34 @@ class CollisionSystem {
    * @returns {{collides: boolean, normal: number[], penetration: number, bboxIndex: number}|{collides: boolean}} Resultado da colisão.
    */
   checkCollision(pos, radius = 0.4) {
-  for (let i = 0; i < this.boundingBoxes.length; i++) {
-    const b = this.boundingBoxes[i];
+    for (let i = 0; i < this.boundingBoxes.length; i++) {
+      const b = this.boundingBoxes[i];
 
-    // Clamp (ponto mais próximo da caixa no plano XZ)
-    const closestX = Math.max(b.min[0], Math.min(pos[0], b.max[0]));
-    const closestZ = Math.max(b.min[2], Math.min(pos[2], b.max[2]));
+      // Clamp (ponto mais próximo da caixa no plano XZ)
+      const closestX = Math.max(b.min[0], Math.min(pos[0], b.max[0]));
+      const closestZ = Math.max(b.min[2], Math.min(pos[2], b.max[2]));
 
-    // Distância do centro do jogador ao ponto mais próximo da caixa
-    const dx = pos[0] - closestX;
-    const dz = pos[2] - closestZ;
+      // Distância do centro do jogador ao ponto mais próximo da caixa
+      const dx = pos[0] - closestX;
+      const dz = pos[2] - closestZ;
 
-    const distSq = dx * dx + dz * dz;
+      const distSq = dx * dx + dz * dz;
 
-    if (distSq < radius * radius) {
-      // Colisão! Calcula a normal e a penetração para resposta (escorregar na parede)
-      const dist = Math.sqrt(distSq) || 0.0001;
+      if (distSq < radius * radius) {
+        // Colisão! Calcula a normal e a penetração para resposta (escorregar na parede)
+        const dist = Math.sqrt(distSq) || 0.0001;
 
-      return {
-        collides: true,
-        normal: [dx / dist, 0, dz / dist], // Normal de repulsão no plano XZ
-        penetration: radius - dist,
-        bboxIndex: i
-      };
+        return {
+          collides: true,
+          normal: [dx / dist, 0, dz / dist], // Normal de repulsão no plano XZ
+          penetration: radius - dist,
+          bboxIndex: i
+        };
+      }
     }
+    
+    return { collides: false };
   }
-  
-  return { collides: false };
-}
   
   // Código para criar a geometria de debug (linhas) para as Bounding Boxes
   createDebugGeometry(gl) {
@@ -630,8 +630,7 @@ async function main() {
   // ===================== GAME LOOP - UPDATE =====================
   function update(dt, totalTime) {
     if (!player) return;
-    const playerColX = player.pos[0];
-    const playerColZ = player.pos[2];
+
 
     // CONTROLES DE ROTAÇÃO DA CÂMERA (opcional)
     let rotateCamera = 0;
@@ -710,24 +709,24 @@ async function main() {
     }
 
     // ===================== COLISÃO COM FANTASMAS =====================
-    for (const ghost of characters) {
-      if (ghost.isPlayer) continue;
+for (const ghost of characters) {
+  if (ghost.isPlayer) continue;
 
-      const gx = ghost.pos[0];
-      const gz = ghost.pos[2];
-      const dx = playerColX - gx;
-      const dz = playerColZ - gz;
+  const dx = player.pos[0] - ghost.pos[0];
+  const dz = player.pos[2] - ghost.pos[2];
 
-      // Soma dos raios escalados
-      const r = getPlayerRadius(player) + getGhostRadius(ghost);
+  const r =
+    getPlayerRadius(player) +
+    getGhostRadius(ghost) +
+    0.15; // ajuste visual só para fantasmas
 
-      if (dx * dx + dz * dz <= r * r) {
-        // Colisão: Reinicia o jogador
-        player.pos[0] = 0;
-        player.pos[2] = 0;
-        break;
-      }
-    }
+  if (dx * dx + dz * dz <= r * r) {
+    player.pos[0] = 0;
+    player.pos[2] = 0;
+    break;
+  }
+}
+
   }
 
   // ===================== GAME LOOP - RENDER =====================
@@ -781,13 +780,54 @@ async function main() {
     const fogColor = [0.02, 0.02, 0.05];
 
     gl.useProgram(programInfo.program);
-
+    
     // ---------- Desenha chão ----------
-    // ... (configuração e desenho do chão) ...
+    webglUtils.setBuffersAndAttributes(gl, programInfo, groundBufferInfo);
+
+    let worldGround = m4.identity();
+    webglUtils.setUniforms(programInfo, {
+        u_projection: projection,
+        u_view: view,
+        u_world: worldGround,
+        u_lightDirection: lightDirection,
+        u_ambient: ambient,
+        u_viewWorldPosition: viewWorldPos,
+        u_shininess: 8.0,
+        u_specularColor: [0.05, 0.05, 0.07],
+        u_diffuse: [0.08, 0.10, 0.15, 1.0],
+        u_fogNear: fogNear,
+        u_fogFar: fogFar,
+        u_fogColor: fogColor,
+        u_emissionColor: [0.0, 0.0, 0.0],
+        u_emissionStrength: 0.0,
+    });
+    webglUtils.drawBufferInfo(gl, groundBufferInfo);
 
     // ---------- Desenha labirinto ----------
     if (labyrinthBufferInfo) {
-      // ... (configuração e desenho do labirinto) ...
+        webglUtils.setBuffersAndAttributes(gl, programInfo, labyrinthBufferInfo);
+
+        let worldLab = m4.translation(0, -1.0, 0);
+        worldLab = m4.multiply(worldLab, m4.scaling(1.0, 1.0, 1.0));
+
+        webglUtils.setUniforms(programInfo, {
+            u_projection: projection,
+            u_view: view,
+            u_world: worldLab,
+            u_lightDirection: lightDirection,
+            u_ambient: ambient,
+            u_viewWorldPosition: viewWorldPos,
+            u_shininess: 12.0,
+            u_specularColor: [0.3, 0.3, 0.5],
+            u_diffuse: [0.03, 0.15, 0.35, 1.0],
+            u_fogNear: fogNear,
+            u_fogFar: fogFar,
+            u_fogColor: fogColor,
+            u_emissionColor: [0.0, 0.0, 0.0],
+            u_emissionStrength: 0.0,
+        });
+
+        webglUtils.drawBufferInfo(gl, labyrinthBufferInfo);
     }
 
     // ---------- DESENHA FRUTINHAS ----------
@@ -797,7 +837,7 @@ async function main() {
 
         let worldFruit = m4.translation(
           fruit.pos[0],
-          fruit.pos[1],
+          fruit.pos[1], // Corrigido para a posição inicial em -0.3
           fruit.pos[2]
         );
 
@@ -812,6 +852,11 @@ async function main() {
         );
 
         worldFruit = m4.multiply(worldFruit, m4.scaling(0.4, 0.4, 0.4));
+        worldFruit = m4.multiply(worldFruit, m4.yRotation(time)); // Rotação da fruta (do Código B)
+        
+        // BOB DA FRUTA (do Código B, adaptado)
+        const bob = 0.2 * Math.sin(time * 3.0 + fruit.pos[0] + fruit.pos[2]);
+        worldFruit = m4.multiply(worldFruit, m4.translation(0, bob, 0));
 
         webglUtils.setBuffersAndAttributes(gl, programInfo, fruitBufferInfo);
         webglUtils.setUniforms(programInfo, {
