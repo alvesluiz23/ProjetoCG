@@ -438,40 +438,9 @@ async function main() {
   ];
 
   // ----------------- FRUTINHAS -----------------
-  const fruits = [];
-  let fruitBufferInfo = null;
+  const fruits = []; // Array para armazenar cada fruta individualmente
+  let fruitBufferInfo = null; // Buffer para renderizar o modelo de fruta
   let fruitsCollected = 0;
-
-  const worldLimit = 9;
-
-  /**
-   * Encontra uma posição aleatória para uma fruta que não colida com as paredes.
-   */
-  function getRandomFruitPosition() {
-    const margin = 1.0;
-    const maxTries = 50;
-
-    for (let i = 0; i < maxTries; ++i) {
-      const x = (Math.random() * 2 - 1) * (worldLimit - margin);
-      const z = (Math.random() * 2 - 1) * (worldLimit - margin);
-      const pos = [x, 0, z];
-
-      const col = collisionSystem.checkCollision(pos, 0.5);
-      if (!col.collides) {
-        return pos;
-      }
-    }
-    return [0, 0, 0];
-  }
-
-  function spawnFruit() {
-    const pos = getRandomFruitPosition();
-
-    fruits.push({
-      pos: [pos[0], -0.3, pos[2]],
-      collected: false,
-    });
-  }
 
   const player = characters.find((c) => c.isPlayer);
   const collisionSystem = new CollisionSystem();
@@ -517,12 +486,6 @@ async function main() {
       // Processa a colisão do labirinto
       collisionSystem.processLabyrinthMesh(labData.position, -1.0);
       collisionSystem.createDebugGeometry(gl);
-
-        for (let i = 0; i < 10; ++i) {
-          spawnFruit();
-        }
-        console.log("Quantidade de frutas:", fruits.length);
-
       
       console.log("Labirinto carregado:", labData.position.length / 3, "vértices");
     } else {
@@ -532,9 +495,9 @@ async function main() {
     console.error("Falha ao carregar labirinto:", e);
   }
 
-  // --------- CARREGA MODELO DA FRUTINHA ---------
+  // --------- CARREGA MODELO DAS FRUTAS ---------
   try {
-    const fruitResp = await fetch("modelo/fruit.obj");
+    const fruitResp = await fetch("modelo/fruits.obj");
     if (fruitResp.ok) {
       const fruitText = await fruitResp.text();
       const fruitData = parseOBJ(fruitText);
@@ -543,14 +506,27 @@ async function main() {
         position: fruitData.position,
         normal: fruitData.normal,
       };
-      window.FRUIT_CENTER_OFFSET = fruitCenter; // Guarda o offset do centro para correção de pivot
+      window.FRUIT_CENTER_OFFSET = fruitCenter;
       fruitBufferInfo = webglUtils.createBufferInfoFromArrays(gl, fruitArrays);
-      console.log("Modelo de fruta carregado:", fruitData.position.length / 3, "vértices");
+      
+      // Conta quantas frutas tem no modelo baseado nos vértices
+      const verticesPerFruit = 72; // Ajuste este valor conforme seu modelo
+      const totalFruitsInModel = Math.floor(fruitData.position.length / 3 / verticesPerFruit);
+      
+      console.log("Modelo de frutas carregado:", fruitData.position.length / 3, "vértices");
+      console.log("Total de frutas no modelo:", totalFruitsInModel);
+      
+      // Cria uma única entidade para renderizar todas as frutas
+      fruits.push({
+        pos: [0, -0.3, 0], // Posição central
+        scale: 1.0
+      });
+      
     } else {
-      console.error("Erro ao carregar modelo/fruit.obj");
+      console.error("Erro ao carregar modelo/fruits.obj");
     }
   } catch (e) {
-    console.error("Falha ao carregar a frutinha:", e);
+    console.error("Falha ao carregar as frutas:", e);
   }
 
   // ---------- CHÃO ----------
@@ -597,7 +573,6 @@ async function main() {
   function update(dt, totalTime) {
     if (!player) return;
 
-
     // CONTROLES DE ROTAÇÃO DA CÂMERA (opcional)
     let rotateCamera = 0;
     if (keys["q"]) rotateCamera += 1;
@@ -629,20 +604,17 @@ async function main() {
       
       // Move para trás
       if (moveForward < 0) {
-        moveAngle = player.facingAngle + Math.PI; // Adiciona 180 graus (pi radianos)
+        moveAngle = player.facingAngle + Math.PI;
       }
       
-      // Converte ângulo para vetor de direção (sin para X, cos para Z)
       const moveX = Math.sin(moveAngle); 
       const moveZ = Math.cos(moveAngle); 
       
-      // Calcula nova posição desejada
       const desiredX = player.pos[0] + moveX * player.moveSpeed * dt * Math.abs(moveForward);
       const desiredZ = player.pos[2] + moveZ * player.moveSpeed * dt * Math.abs(moveForward);
       
-      // Verifica colisão com paredes
       const tempPos = [desiredX, player.pos[1], desiredZ];
-      const collision = collisionSystem.checkCollision(tempPos, player.radius * player.scale); // Usa o raio escalado
+      const collision = collisionSystem.checkCollision(tempPos, player.radius * player.scale);
       
       if (!collision.collides) {
         player.pos[0] = desiredX;
@@ -650,49 +622,46 @@ async function main() {
       }
     }
 
-    // ---- COLETA DE FRUTAS ----
+    // ---- COLETA DE FRUTAS (SEM DESAPARECER) ----
     const px = player.pos[0];
     const pz = player.pos[2];
+    const collectRadius = 0.5; // Raio para coletar frutas próximas
 
-    // Raio de coleta
-    const collectRadius = getPlayerRadius(player) + getFruitRadius() + 0.35;
-    const collectRadiusSq = collectRadius * collectRadius;
+    // Verificar se já coletou todas as frutas
+    if (fruitsCollected < 64) { // 8 grupos × 8 frutas
+      let collectedNow = false;
+      
+      // Simplesmente incrementa o contador quando o jogador está perto das frutas
+      const dx = px - fruits[0].pos[0];
+      const dz = pz - fruits[0].pos[2];
+      const distSq = dx * dx + dz * dz;
 
-    for (let i = fruits.length - 1; i >= 0; i--) {
-      const fruit = fruits[i];
+      if (distSq <= collectRadius * collectRadius && fruitsCollected === 0) {
+        fruitsCollected = 64; // Coleta todas as frutas de uma vez
+        collectedNow = true;
+      }
 
-      const dx = px - fruit.pos[0];
-      const dz = pz - fruit.pos[2];
-
-      if (dx * dx + dz * dz <= collectRadiusSq) {
-        fruits.splice(i, 1); // Remove a fruta
-        fruitsCollected++;
-
-        if (fruitCounterEl) {
-          fruitCounterEl.textContent = fruitsCollected; // Atualiza o contador no DOM
-        }
+      if (collectedNow && fruitCounterEl) {
+        fruitCounterEl.textContent = fruitsCollected;
+        console.log("Frutas coletadas! Total:", fruitsCollected);
       }
     }
 
     // ===================== COLISÃO COM FANTASMAS =====================
-for (const ghost of characters) {
-  if (ghost.isPlayer) continue;
+    for (const ghost of characters) {
+      if (ghost.isPlayer) continue;
 
-  const dx = player.pos[0] - ghost.pos[0];
-  const dz = player.pos[2] - ghost.pos[2];
+      const dx = player.pos[0] - ghost.pos[0];
+      const dz = player.pos[2] - ghost.pos[2];
 
-  const r =
-    getPlayerRadius(player) +
-    getGhostRadius(ghost) +
-    0.15; // ajuste visual só para fantasmas
+      const r = getPlayerRadius(player) + getGhostRadius(ghost) + 0.15;
 
-  if (dx * dx + dz * dz <= r * r) {
-    player.pos[0] = 0;
-    player.pos[2] = 0;
-    break;
-  }
-}
-
+      if (dx * dx + dz * dz <= r * r) {
+        player.pos[0] = 0;
+        player.pos[2] = 0;
+        break;
+      }
+    }
   }
 
   // ===================== GAME LOOP - RENDER =====================
@@ -701,7 +670,7 @@ for (const ghost of characters) {
     const dt = Math.min(time - previousTime, 0.05);
     previousTime = time;
 
-    update(dt, time); // Chama a lógica de atualização
+    update(dt, time);
 
     webglUtils.resizeCanvasToDisplaySize(gl.canvas);
     gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
@@ -715,28 +684,25 @@ for (const ghost of characters) {
     const camDistance = 8; 
     const camHeight = 4; 
     
-    // Posição da Câmera: Atrás do Pac-Man (ângulo oposto ao facingAngle)
     const offsetX = Math.sin(player.facingAngle) * camDistance;
     const offsetZ = Math.cos(player.facingAngle) * camDistance;
     
     const cameraPosition = [
-      player.pos[0] - offsetX, // Pos X: Subtrai o offset para ficar atrás
+      player.pos[0] - offsetX,
       player.pos[1] + camHeight, 
-      player.pos[2] - offsetZ // Pos Z: Subtrai o offset para ficar atrás
+      player.pos[2] - offsetZ
     ];
     
     const target = [player.pos[0], player.pos[1] + 1.0, player.pos[2]];
     const up = [0, 1, 0];
 
-    // Projeção e View Matrix
     const fieldOfViewRadians = degToRad(60); 
     const aspect = gl.canvas.clientWidth / gl.canvas.clientHeight;
     const projection = m4.perspective(fieldOfViewRadians, aspect, zNear, zFar);
     
     const camera = m4.lookAt(cameraPosition, target, up);
-    const view = m4.inverse(camera); // View Matrix é a inversa da Camera Matrix
+    const view = m4.inverse(camera);
 
-    // Parâmetros de Iluminação e Fog
     const lightDirection = m4.normalize([-0.6, 1.0, 0.8]);
     const ambient = [0.15, 0.15, 0.15];
     const viewWorldPos = cameraPosition;
@@ -796,14 +762,16 @@ for (const ghost of characters) {
         webglUtils.drawBufferInfo(gl, labyrinthBufferInfo);
     }
 
-    // ---------- DESENHA FRUTINHAS ----------
+    // ---------- DESENHA O MODELO DE FRUTAS (APARECE SEM DESAPARECER) ----------
     if (fruitBufferInfo && fruits.length > 0) {
       fruits.forEach((fruit) => {
-        if (fruit.collected) return;
+        // As frutas sempre aparecem, mesmo após serem coletadas
+        // Apenas renderizamos normalmente
 
+        // Matriz de transformação das frutas
         let worldFruit = m4.translation(
           fruit.pos[0],
-          fruit.pos[1], // Corrigido para a posição inicial em -0.3
+          fruit.pos[1],
           fruit.pos[2]
         );
 
@@ -818,12 +786,7 @@ for (const ghost of characters) {
         );
 
         worldFruit = m4.multiply(worldFruit, m4.scaling(0.4, 0.4, 0.4));
-        worldFruit = m4.multiply(worldFruit, m4.yRotation(time)); // Rotação da fruta (do Código B)
         
-        // BOB DA FRUTA (do Código B, adaptado)
-        const bob = 0.2 * Math.sin(time * 3.0 + fruit.pos[0] + fruit.pos[2]);
-        worldFruit = m4.multiply(worldFruit, m4.translation(0, bob, 0));
-
         webglUtils.setBuffersAndAttributes(gl, programInfo, fruitBufferInfo);
         webglUtils.setUniforms(programInfo, {
           u_projection: projection,
@@ -831,12 +794,12 @@ for (const ghost of characters) {
           u_world: worldFruit,
           u_shininess: 16.0,
           u_specularColor: [1, 1, 1],
-          u_diffuse: [1, 0.3, 0.1, 1],
+          u_diffuse: [1, 0.3, 0.1, 1.0], // Alpha sempre 1.0 (totalmente visível)
           u_fogNear: fogNear,
           u_fogFar: fogFar,
           u_fogColor: fogColor,
           u_emissionColor: [1, 0.5, 0.2],
-          u_emissionStrength: 0.6,
+          u_emissionStrength: 0.6, // Emission sempre ativo
           u_lightDirection: lightDirection,
           u_ambient: ambient,
           u_viewWorldPosition: viewWorldPos,
@@ -856,13 +819,11 @@ for (const ghost of characters) {
       world = m4.multiply(world, m4.scaling(ch.scale, ch.scale, ch.scale));
 
       if (ch.isPlayer) {
-        // Rotação do Pac-Man baseada no ângulo de direção
         world = m4.multiply(world, m4.yRotation(player.facingAngle));
       }
 
       let currentEmissionStrength = ch.emissionStrength;
       if (ch.isPlayer) {
-        // Efeito de pulsação (emission)
         const pulse = 0.1 * Math.sin(time * ch.pulseSpeed) + 1.0;
         currentEmissionStrength = ch.emissionStrength * pulse;
       }
@@ -900,7 +861,7 @@ for (const ghost of characters) {
         u_projection: projection,
         u_view: view,
         u_world: worldLab,
-        u_color: [0.0, 1.0, 0.0] // Linhas verdes
+        u_color: [0.0, 1.0, 0.0]
       });
       
       webglUtils.drawBufferInfo(gl, collisionSystem.debugBufferInfo, gl.LINES);
@@ -912,13 +873,13 @@ for (const ghost of characters) {
     requestAnimationFrame(render);
   }
 
-  // ---------- Mensagens de Controle ----------
   console.log("=== CONTROLES ===");
   console.log("W ou ↑: FRENTE");
   console.log("S ou ↓: TRÁS");
   console.log("A: ESQUERDA");
   console.log("D: DIREITA");
   console.log("B: Debug de colisão");
+  console.log("Total de frutas no labirinto: 64 (8 grupos × 8 frutas)");
   
   requestAnimationFrame(render);
 }
