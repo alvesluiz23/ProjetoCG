@@ -1,3 +1,4 @@
+
 "use strict";
 let fruitCounterEl = null;
 
@@ -818,7 +819,6 @@ for (const ghost of characters) {
         );
 
         worldFruit = m4.multiply(worldFruit, m4.scaling(0.4, 0.4, 0.4));
-        worldFruit = m4.multiply(worldFruit, m4.yRotation(time)); // Rotação da fruta (do Código B)
         
         // BOB DA FRUTA (do Código B, adaptado)
         const bob = 0.2 * Math.sin(time * 3.0 + fruit.pos[0] + fruit.pos[2]);
