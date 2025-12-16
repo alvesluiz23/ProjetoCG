@@ -17,22 +17,13 @@ function getGhostRadius(ghost) {
   return ghost.radius * ghost.scale;
 }
 
-// Inicialização após o DOM carregar (busca o elemento para contagem de frutas)
+// Inicialização após o DOM carregar 
 window.addEventListener("DOMContentLoaded", () => {
   fruitCounterEl = document.getElementById("fruitCount");
 });
 
 // ===================== PARSER OBJ =====================
-/*
-  Funções para processar arquivos .obj 3D e extrair dados de vértice,
-  normal e (assumidamente) textura para uso no WebGL.
-*/
 
-/**
- * Calcula o centro (XZ) de um modelo 3D a partir de seus vértices.
- * @param {number[]} positions - Array de coordenadas [x, y, z, x, y, z, ...].
- * @returns {number[]} O centro [centerX, centerZ].
- */
 function computeCenterXZ(positions) {
   let minX = Infinity, maxX = -Infinity;
   let minZ = Infinity, maxZ = -Infinity;
@@ -50,11 +41,7 @@ function computeCenterXZ(positions) {
   ];
 }
 
-/**
- * Analisa o texto de um arquivo .OBJ e retorna os dados de posição e normal.
- * @param {string} text - Conteúdo do arquivo .OBJ.
- * @returns {{position: number[], normal: number[]}} Dados prontos para WebGL.
- */
+
 function parseOBJ(text) {
   const objPositions = [[0, 0, 0]];
   const objTexcoords = [[0, 0]];
@@ -131,10 +118,7 @@ window.addEventListener("keyup", (e) => {
 });
 
 // ===================== COLLIDERS =====================
-/**
- * Sistema de colisão básico que utiliza Bounding Boxes (AABB) 
- * no plano XZ para colisão do jogador com as paredes do labirinto.
- */
+
 class CollisionSystem {
   constructor() {
     this.triangles = []; // Armazena os triângulos da mesh do labirinto 
@@ -143,10 +127,6 @@ class CollisionSystem {
     this.debugBufferInfo = null; // Buffer para renderizar debug
   }
   
-  /**
-   * Processa a malha do labirinto para criar os objetos de colisão.
-   * Cria uma Bounding Box para cada triângulo da malha.
-   */
   processLabyrinthMesh(positions, yOffset = 0) {
     this.triangles = [];
     this.boundingBoxes = [];
@@ -181,12 +161,6 @@ class CollisionSystem {
   }
   
   
-  /**
-   * Verifica a colisão de uma esfera (jogador) com as Bounding Boxes (paredes).
-   * @param {number[]} pos - Posição [x, y, z] do centro da esfera.
-   * @param {number} radius - Raio da esfera.
-   * @returns {{collides: boolean, normal: number[], penetration: number, bboxIndex: number}|{collides: boolean}} Resultado da colisão.
-   */
   checkCollision(pos, radius = 0.4) {
     for (let i = 0; i < this.boundingBoxes.length; i++) {
       const b = this.boundingBoxes[i];
@@ -270,14 +244,6 @@ class CollisionSystem {
   }
 }
 
-/**
- * Verifica colisão simples entre dois círculos (no plano XZ).
- * @param {number[]} posA - Posição do centro A [x, y, z].
- * @param {number} radiusA - Raio A.
- * @param {number[]} posB - Posição do centro B [x, y, z].
- * @param {number} radiusB - Raio B.
- * @returns {boolean} True se houver colisão.
- */
 function checkCircleCollision(posA, radiusA, posB, radiusB) {
   const dx = posA[0] - posB[0];
   const dz = posA[2] - posB[2];
@@ -587,7 +553,7 @@ async function main() {
     console.error("Falha ao carregar a frutinha:", e);
   }
 
-  // ---------- CHÃO (Ground) ----------
+  // ---------- CHÃO ----------
   const groundSize = 22;
   const groundY = -1.2;
 
@@ -644,8 +610,8 @@ async function main() {
     let moveForward = 0;
     let turnDirection = 0;
     
-    if (keys["w"] || keys["arrowup"]) moveForward += 1; // CORRIGIDO: W/UP para frente
-    if (keys["s"] || keys["arrowdown"]) moveForward -= 1; // CORRIGIDO: S/DOWN para trás
+    if (keys["w"] || keys["arrowup"]) moveForward += 1; 
+    if (keys["s"] || keys["arrowdown"]) moveForward -= 1; 
     
     if (keys["a"]) turnDirection += 1;
     if (keys["d"]) turnDirection -= 1;
@@ -863,7 +829,6 @@ for (const ghost of characters) {
           u_projection: projection,
           u_view: view,
           u_world: worldFruit,
-          // ... (uniforms de luz e cor da fruta) ...
           u_shininess: 16.0,
           u_specularColor: [1, 1, 1],
           u_diffuse: [1, 0.3, 0.1, 1],
